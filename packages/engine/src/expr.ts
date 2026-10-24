@@ -18,6 +18,9 @@
 
 export type ExprValue = number | string | boolean | null;
 
+/** Variables available to an expression: flat fact values or nested objects for dotted access. */
+export type ExprVars = Record<string, ExprValue | Record<string, ExprValue>>;
+
 export class ExprError extends Error {}
 
 /** Object.prototype-safe hasOwnProperty (guards `__proto__`/`constructor` keys). */
@@ -305,7 +308,7 @@ function str_(v: ExprValue | undefined): string {
   throw new ExprError(`Expected string, got ${JSON.stringify(v)}`);
 }
 
-export function evalNode(n: Node, vars: Record<string, ExprValue>): ExprValue {
+export function evalNode(n: Node, vars: ExprVars): ExprValue {
   switch (n.k) {
     case "lit":
       return n.v;
@@ -346,7 +349,7 @@ function evalBin(
   op: string,
   l: Node,
   r: Node,
-  vars: Record<string, ExprValue>,
+  vars: ExprVars,
 ): ExprValue {
   /* short-circuit the logical ones */
   if (op === "&&") {
@@ -428,7 +431,7 @@ export function parseExpr(src: string): Node {
   return node;
 }
 
-export function evalExpr(src: string, vars: Record<string, ExprValue>): ExprValue {
+export function evalExpr(src: string, vars: ExprVars = {}): ExprValue {
   return evalNode(parseExpr(src), vars);
 }
 

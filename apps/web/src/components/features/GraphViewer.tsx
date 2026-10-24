@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import cytoscape from 'cytoscape';
+import type { Core } from 'cytoscape';
 import type { GraphSubgraph, GraphNode } from '@evidencegraph/domain';
 
 interface GraphViewerProps {
@@ -26,13 +27,9 @@ export function GraphViewer({ subgraph, focusId }: GraphViewerProps) {
     if (!containerRef.current) return;
     if (subgraph.nodes.length === 0) return;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let cy: any = null;
+    let cy: Core | null = null;
 
     void (async () => {
-      const cytoscapeModule = await import('cytoscape');
-      const cytoscape = cytoscapeModule.default;
-
       const elements = [
         ...subgraph.nodes.map((n) => ({
           data: {

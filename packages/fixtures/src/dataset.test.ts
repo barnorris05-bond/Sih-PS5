@@ -13,7 +13,7 @@ const dataset = assembleDataset(rules);
 
 const byApp = (app: string, list: Finding[]) => list.filter((f) => f.applicationId === app);
 const instIds = INSTITUTIONS.map((i) => i.id);
-const faultApps = Array.from(new Set(FAULT_MATRIX.flatMap((f) => f.institutions)));
+const faultApps: string[] = Array.from(new Set<string>(FAULT_MATRIX.flatMap((f) => f.institutions as readonly string[])));
 const controlApps = instIds.filter((id) => !faultApps.includes(id));
 
 describe("dataset assembly", () => {
