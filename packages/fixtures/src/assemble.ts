@@ -60,19 +60,21 @@ const CATEGORY_FORM_TYPE: Record<string, string> = {
   NEW_PROGRAMME: "programme_form",
 };
 
-const CHECKLIST: Array<{ key: string; label: string; docType: string }> = [
-  { key: "category_form", label: "Application form", docType: Object.values(CATEGORY_FORM_TYPE)[0] as string },
-  { key: "land_documents", label: "Land (sale deed)", docType: "sale_deed" },
-  { key: "facility_fire", label: "Fire safety NOC", docType: "fire_noc" },
-  { key: "facility_bcc", label: "Building completion certificate", docType: "building_completion_certificate" },
-  { key: "faculty_roster", label: "Faculty roster", docType: "faculty_roster" },
-  { key: "faculty_degree", label: "Degree certificate (sample)", docType: "degree_certificate" },
-  { key: "financial_fdr", label: "Fixed deposit receipt", docType: "fdr" },
-  { key: "trust_registration", label: "Trust registration", docType: "trust_registration" },
-  { key: "trust_affidavit", label: "Trust affidavit", docType: "trust_affidavit" },
-  { key: "facility_plan", label: "Floor plan", docType: "floor_plan" },
-  { key: "facility_lab", label: "Lab photographs", docType: "lab_photo" },
-  { key: "facility_classroom", label: "Classroom photographs", docType: "classroom_photo" },
+const CHECKLIST: Array<{ key: string; label: string; docType: string; expectedSlot: string }> = [
+  // expectedSlot is the slot convention every fixture file is filed under; the
+  // intake completeness check compares the file's actual slot against it.
+  { key: "category_form", label: "Application form", docType: Object.values(CATEGORY_FORM_TYPE)[0] as string, expectedSlot: "category_form" },
+  { key: "land_documents", label: "Land (sale deed)", docType: "sale_deed", expectedSlot: "land_documents" },
+  { key: "facility_fire", label: "Fire safety NOC", docType: "fire_noc", expectedSlot: "facility_documents" },
+  { key: "facility_bcc", label: "Building completion certificate", docType: "building_completion_certificate", expectedSlot: "facility_documents" },
+  { key: "faculty_roster", label: "Faculty roster", docType: "faculty_roster", expectedSlot: "faculty_documents" },
+  { key: "faculty_degree", label: "Degree certificate (sample)", docType: "degree_certificate", expectedSlot: "faculty_documents" },
+  { key: "financial_fdr", label: "Fixed deposit receipt", docType: "fdr", expectedSlot: "financial_documents" },
+  { key: "trust_registration", label: "Trust registration", docType: "trust_registration", expectedSlot: "trust_documents" },
+  { key: "trust_affidavit", label: "Trust affidavit", docType: "trust_affidavit", expectedSlot: "trust_documents" },
+  { key: "facility_plan", label: "Floor plan", docType: "floor_plan", expectedSlot: "facility_documents" },
+  { key: "facility_lab", label: "Lab photographs", docType: "lab_photo", expectedSlot: "facility_documents" },
+  { key: "facility_classroom", label: "Classroom photographs", docType: "classroom_photo", expectedSlot: "facility_documents" },
 ];
 
 /** The n-th application in session order (deterministic). */
@@ -538,7 +540,7 @@ function assembleFindings(ctx: {
     for (const item of CHECKLIST) {
       const docType = item.key === "category_form" ? CATEGORY_FORM_TYPE[inst.category] : item.docType;
       const doc = documents.find((d) => d.applicationId === inst.id && d.docType === docType);
-      const expectedSlot = item.key;
+      const expectedSlot = item.expectedSlot;
       if (!doc) {
         if (item.key === "trust_affidavit" && inst.id === "INTK-2026-0229") {
           // Fault 7 — surfaced by the presence rule below, created at intake time.
