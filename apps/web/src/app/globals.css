@@ -1,0 +1,138 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource/jetbrains-mono/index.css";
+
+@theme {
+  /* Canvas & surfaces */
+  --color-canvas: #121212;
+  --color-surface: #1a1a1a;
+  --color-raised: #1e1e1e;
+  --color-overlay: #252525;
+  --color-border: #272822;
+  --color-border-strong: #3e3d32;
+
+  /* Text */
+  --color-text: #f8f8f2;
+  --color-text-muted: #75715e;
+  --color-text-faint: #49483e;
+
+  /* Accents */
+  --color-accent: #66d9ef;
+  --color-accent-lime: #a6e22e;
+  --color-accent-weak: color-mix(in srgb, #66d9ef 14%, transparent);
+
+  /* Finding classes */
+  --color-completeness: #6aa9ff;
+  --color-validity: #e6db74;
+  --color-discrepancy: #ae81ff;
+  --color-anomaly: #f92672;
+  --color-violation: #f92672;
+
+  /* Verification statuses */
+  --color-verified: #a6e22e;
+  --color-mismatch: #f92672;
+  --color-expired: #e6db74;
+  --color-pending: #75715e;
+
+  /* Alert */
+  --color-alert: #f92672;
+
+  /* Typography */
+  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-menu: 160ms;
+  --duration-panel: 220ms;
+  --duration-view: 350ms;
+  --ease-crisp: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-enter: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Radii */
+  --radius-control: 6px;
+  --radius-panel: 10px;
+
+  /* Spacing grid 4px base */
+  --spacing: 0.25rem;
+}
+
+/* Light theme override */
+.light {
+  --color-canvas: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-raised: #f0f2f5;
+  --color-overlay: #e8ebf0;
+  --color-border: #dde1e8;
+  --color-border-strong: #c4cad6;
+  --color-text: #161b22;
+  --color-text-muted: #5a6577;
+  --color-text-faint: #8b95a7;
+  --color-accent: #0b6fa4;
+  --color-accent-lime: #3a7c00;
+  --color-accent-weak: color-mix(in srgb, #0b6fa4 14%, transparent);
+  --color-completeness: #1a5fb4;
+  --color-validity: #b07a00;
+  --color-discrepancy: #6642c4;
+  --color-anomaly: #c0006a;
+  --color-violation: #c00020;
+  --color-verified: #1a7a50;
+  --color-mismatch: #c00020;
+  --color-expired: #b07a00;
+  --color-pending: #5a6577;
+  --color-alert: #c00020;
+  color-scheme: light;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  /* bbox draw-in animation (stroke-dashoffset only — GPU-safe) */
+  @keyframes bbox-draw {
+    from { stroke-dashoffset: 999; opacity: 0.4; }
+    to   { stroke-dashoffset: 0;   opacity: 1;   }
+  }
+
+  @keyframes bbox-pulse {
+    to { opacity: 0.5; }
+  }
+
+  @keyframes skeleton-shimmer {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(100%);  }
+  }
+
+  @keyframes dot-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+
+  /* Only animate GPU-safe properties */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 80ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 80ms !important;
+    }
+  }
+}

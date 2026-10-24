@@ -1,0 +1,21 @@
+{
+  "name": "evidencegraph",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.9.1",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "start": "pnpm --filter web start",
+    "typecheck": "tsc -p packages/domain && tsc -p packages/engine && tsc -p packages/fixtures && tsc -p apps/web",
+    "lint": "pnpm --filter web lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "generate-fixtures": "node scripts/generate-fixtures.ts",
+    "check-contrast": "node scripts/check-contrast.ts",
+    "grep-pii": "node scripts/grep-pii.ts",
+    "verify-ledger": "node scripts/verify-ledger.ts",
+    "e2e": "pnpm --filter web exec playwright test",
+    "e2e:ui": "pnpm --filter web exec playwright test --ui"
+  }
+}

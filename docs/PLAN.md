@@ -4,42 +4,35 @@
 
 ```
 /apps/web            Next.js App Router (TS strict) — the whole UI + route handlers
-/packages/domain     zod schemas + TS types mirroring spec §06/§07 (two-axis model)
+/packages/domain     zod schemas + TS types mirroring spec §06/§07 (and the two-axis model)
 /packages/engine     rule engine, cross-check, critic, confidence gate, ledger, triage, connectors (pure, no UI imports)
-/packages/fixtures   seeded generator + typed fixture dataset (12 institutions, 13 faults, 5 clean controls, pages, entities, run timelines)
-/rules/aph-2024-27   one YAML file per rule, each carrying a `tests:` block
-/docs                SPEC_DIGEST.md, PLAN.md, ASSUMPTIONS.md, DEMO_SCRIPT.md
-/scripts             run via pnpm scripts: generate-fixtures, check-contrast, grep-pii, verify-ledger
+/packages/fixtures   seeded generator + typed fixture dataset (institutions, documents, pages, facts, forensics, graph edges)
+/rules/aph-2024-27   YAML rule packs (machine-readable, replayable)
+/scripts             one-off generators (page images, ledgers)
+/playwright          e2e tests incl. the 6-minute demo run
 ```
 
-Shared packages live as plain source folders; they are consumed through TypeScript path
-aliases (`@domain/*`, `@engine/*`, `@fixtures/*`) by both the Next.js app (via
-`transpilePackages`-style compilation) and vitest (via alias config). This keeps the
-workspace installable with one `pnpm install` on a laptop without a build step per package,
-and keeps `packages/engine` free of UI imports (it can later sit behind FastAPI).
+## Guiding decisions
 
-## Phases
+- **Determinism everywhere**: seeded PRNG; every run from the same seed produces byte-identical documents, facts, findings and ledger rows (except mocked OCR latency fields, which use a fixed schedule).
+- **Real-vs-simulated line (prompt §2)**: rule engine, YAML packs, rule replay, critic, confidence gate, SHA-256 hash-chained ledger, RBAC/PII masking = **real code with tests**. OCR, vision models, issuer connectors = **MOCK fixtures**, labelled on-screen.
+- **APH numbers**: never invented. Rule packs carry `[fill in: APH reference]` markers, surfaced in UI and README.
+- **Theme**: Evidence Desk (spec §5.2 tokens) replaces Monokai Matrix. Monokai survives only in the Cypher drawer + ledger hash column. "Never use" list respected (§5.4).
+- **Two-axis model** from the spec is first-class in `domain`: finding class × verification status are independent axes, never conflated.
 
-1. **Foundations** — workspace, TS configs, tokens, theme toggle, app shell, role switcher, domain schemas.
-2. **Fixtures + engine** — seeded generator for 12 institutions (7 faulty, 5 clean controls), all documents/pages/facts, entity graph, run timelines; rule engine (safe expression evaluator — no `eval`/`new Function`), YAML rule loader + tests, cross-check, critic, confidence gate, mock connector registry, SHA-256 ledger, triage.
-3. **Workspace UI** — `/queue` (triage order, top-3 reasons, SLA, filters), `/applications/[id]` evidence split view (synthetic page viewer + bbox overlays + finding→evidence jump), conflict view, decision bar with mandatory reason.
-4. **Depth views** — graph neighbourhood + Cypher drawer, verification timeline with MOCK labels, report + deficiency letter, `/self-check/[id]`.
-5. **Operations** — `/pipeline/[runId]` replay, `/rules` admin (editor, live tests, version diff + replay, second-approval publish), `/ledger` (verify, tamper demo, signed digest), `/metrics` (computed from fixtures at runtime).
-6. **Presenter + polish** — `/demo` beats, keyboard shortcuts (J/K/Enter/A/D/E/G// /Esc), skeletons, reduced motion, empty states, a11y pass.
-7. **Verification** — full §8 acceptance run, README + `docs/DEMO_SCRIPT.md`.
+## Phases (drives the todo list)
 
-## Real vs simulated
-
-Real: YAML rule engine + rule tests, rule replay, cross-check, Critic, confidence gate,
-triage, SHA-256 hash-chained ledger (tamper genuinely breaks it), RBAC policy, the
-system-cannot-send rule, forbidden-words guard. Simulated and labelled MOCK everywhere:
-OCR/LLM extraction, vision similarity, issuer connectors, Neo4j/Qdrant (in-memory behind
-the same query interface, real Cypher shown in a drawer), and the agent-graph run
-(deterministic replay timeline, not live execution).
-
-## Verification gates
-
-`pnpm typecheck && pnpm lint && pnpm test && pnpm build` plus the fixture fault matrix
-(13 faults, exact classes/statuses; 5 controls, zero high-severity), contrast script in
-both themes, PII grep (no 12-digit Aadhaar-like patterns anywhere), and a Playwright walk
-of the six-minute demo.
+1. Docs: SPEC_DIGEST (from architecture HTML), PLAN, ASSUMPTIONS, DEMO_SCRIPT.
+2. Monorepo scaffold: pnpm workspace, TS strict, vitest, install deps, git init.
+3. `packages/domain`: zod schemas for facts/findings/verifications/ledger/roles/pages/graph.
+4. `packages/engine`: safe expression evaluator + YAML rule loader/runner (no eval).
+5. `packages/fixtures`: seeded institutions (12), applications (13 faults + 5 controls), documents/pages with layout + bboxes, facts, forensic findings, graph edges, run timeline.
+6. Engine services: cross-check, critic, confidence gate, mock connectors, ledger, triage.
+7. `rules/aph-2024-27` YAML packs + rule tests (each rule documented ↔ fault id).
+8. `apps/web` foundations: tokens/theme, fonts, app shell, role switcher, API layer, PII masking.
+9. Screens: queue, application workspace (evidence, conflicts, decision bar), page viewer with bbox overlays.
+10. Screens: graph view + Cypher drawer, verification timeline, report + letter, self-check.
+11. Screens: pipeline replay, rules admin, ledger, metrics.
+12. `/demo` presenter bar + keyboard shortcuts + signature motion moments (reduced-motion aware).
+13. Verification: typecheck, lint, tests, build, fault matrix (13/13), controls (0 high), contrast, PII grep, Playwright.
+14. README (real-vs-simulated, APH markers), DEMO_SCRIPT, final report.

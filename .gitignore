@@ -1,0 +1,11 @@
+# EvidenceGraph prototype workspace
+node_modules/
+.next/
+.turbo/
+dist/
+*.tsbuildinfo
+/data/
+/test-results/
+/playwright-report/
+.DS_Store
+Thumbs.db
