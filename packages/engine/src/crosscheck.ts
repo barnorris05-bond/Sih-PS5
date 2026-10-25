@@ -66,7 +66,7 @@ export function normaliseName(name: string): string {
     .split(/\s+/)
     .filter(Boolean)
     .map((t) => ABBREVIATIONS[t] ?? t)
-    .filter((t) => !["the", "and", "&"].includes(t))
+    .filter((t) => !["the", "and", "&", "of"].includes(t)) // "of" is pure filler: "Inst. of Engineering" == "Institute Engineering"
     .join(" ");
 }
 
@@ -100,6 +100,16 @@ export function matchNames(a: string, b: string): NameMatchResult {
 
 /* ---------------- Cross-institution patterns (§09 queries, in memory) ---------------- */
 
+/**
+ * Open-ended appointments (`to: null`, `to: ""`, or the key missing) all normalise
+ * to the same far-future bound so the inclusive overlap test below behaves
+ * identically for every marshalling of "this employment is still ongoing".
+ * The fixture marshals open-ended as null; this guard keeps older payloads safe.
+ */
+export function endBound(to: unknown): string {
+  return typeof to === "string" && to !== "" ? to : "9999-12-31";
+}
+
 /** All pattern results for a whole session, shared by graph rules for every application. */
 export function computeGraphOverlap(g: GraphStore): GraphOverlap {
   const ghostFacultyPairs: GraphOverlap["ghostFacultyPairs"] = [];
@@ -116,13 +126,11 @@ export function computeGraphOverlap(g: GraphStore): GraphOverlap {
       if (e1.source === e2.source) continue; // different institutions only
       const p1 = e1.props as Record<string, string>;
       const p2 = e2.props as Record<string, string>;
-      if (p1.session !== p2.session) continue;
+      if (p1.session !== p2.session) continue; // cross-session employment is not this session's duty
       const from1 = p1.from;
-      // An empty/non-nullish-free `to` (open-ended appointment) stays open —
-      // the roster assembler marshals `to: null` to "".
-      const to1 = p1.to || "9999-12-31";
+      const to1 = endBound(p1.to);
       const from2 = p2.from;
-      const to2 = p2.to || "9999-12-31";
+      const to2 = endBound(p2.to);
       if ((from1 ?? "") <= to2 && (from2 ?? "") <= to1) {
         const person = g.nodes.get(e1.target);
         const i1 = g.nodes.get(e1.source);

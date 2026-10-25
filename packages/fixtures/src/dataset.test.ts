@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { INSTITUTIONS, FAULT_MATRIX } from "./institutions.js";
 import { loadRulePack } from "../../engine/src/rules.js";
+import { matchNames } from "../../engine/src/crosscheck.js";
 import { assembleDataset } from "./assemble.js";
 import type { Rule, Finding } from "@evidencegraph/domain";
 import type { Dataset } from "./assemble.js";
@@ -90,6 +91,24 @@ describe("the 13 planted faults are all observable", () => {
 });
 
 describe("fault 3 and 4 evidence anchors", () => {
+  it("cross-institution findings appear on both members and no other application", () => {
+    const members = ["INTK-2026-0208", "EOA-2026-0117"];
+    for (const inst of instIds) {
+      const has = byApp(inst, dataset.findings).some((f) => f.ruleId === "ghost_faculty_cross_institution");
+      expect(has, `${inst} ghost-faculty finding presence`).toBe(members.includes(inst));
+    }
+    const fdrMembers = ["EOA-2026-0117", "NEW-2026-0031"];
+    for (const inst of instIds) {
+      const has = byApp(inst, dataset.findings).some((f) => f.ruleId === "fdr_single_pledge");
+      expect(has, `${inst} reused-FDR finding presence`).toBe(fdrMembers.includes(inst));
+    }
+    // The counterpart link is set on both members ("Also on <id>").
+    for (const f of dataset.findings.filter((x) => x.ruleId === "ghost_faculty_cross_institution" || x.ruleId === "fdr_single_pledge")) {
+      expect(f.crossApplication, `${f.id} must be marked crossApplication`).toBe(true);
+      expect(f.relatedApplicationIds.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
   it("ghost-faculty findings cite the roster-entry facts of BOTH member rosters", () => {
     for (const app of ["INTK-2026-0208", "EOA-2026-0117"]) {
       const ghost = byApp(app, dataset.findings).filter((f) => f.ruleId === "ghost_faculty_cross_institution");
@@ -137,6 +156,38 @@ describe("five clean controls", () => {
   it("have zero high-severity findings", () => {
     const highs = controlApps.flatMap((id) => byApp(id, dataset.findings)).filter((f) => f.severity === "high");
     expect(highs.map((f) => ({ app: f.applicationId, rule: f.ruleId, summary: f.summary }))).toEqual([]);
+  });
+
+  it("each control exercises its documented legitimate variation", () => {
+    // Camford: abbreviated / case-variant name must still resolve to the
+    // institution through abbreviation-aware normalisation (matched, or at
+    // worst ambiguous-to-review — never a false "unmatched").
+    const camford = dataset.institutions.find((i) => i.id === "EOA-2026-0163");
+    expect(camford).toBeDefined();
+    expect(camford!.nameVariants.length).toBeGreaterThanOrEqual(1);
+    for (const variant of camford!.nameVariants) {
+      const res = matchNames(variant, camford!.name);
+      expect(res.kind, `${variant} vs ${camford!.name}`).not.toBe("unmatched");
+    }
+    // Tiruvalla: degraded scans — every page carries poor-scan render params.
+    const tiruvalla = dataset.documents.filter((d) => d.applicationId === "INTK-2026-0233");
+    expect(tiruvalla.length).toBeGreaterThanOrEqual(8);
+    const poor = tiruvalla.filter((d) => d.pages.some((p) => (p.blur ?? 0) >= 0.6));
+    expect(poor.length).toBeGreaterThanOrEqual(1);
+    // Mid-year move: both rosters cite the moving faculty member's entry, yet
+    // the overlap check correctly clears the non-overlapping dates — no
+    // ghost-faculty finding may involve emp-81004 on either application.
+    for (const app of ["EOA-2026-0199", "EOA-2026-0163"]) {
+      const entryFacts = dataset.facts.filter((f) => f.applicationId === app && f.key === "faculty.roster_entry" && f.value === "emp-81004");
+      expect(entryFacts.length, `${app} renders the moved faculty member's roster entry`).toBe(1);
+    }
+    const moveHits = dataset.findings.filter(
+      (f) => f.ruleId === "ghost_faculty_cross_institution" && f.evidence.some((e) => e.kind === "fact_ref" && e.factId.includes("emp-81004")),
+    );
+    expect(moveHits).toEqual([]);
+    // Bhiwadi mis-slot control: exactly one low-severity completeness gap.
+    const mis = byApp("EOA-2026-0199", dataset.findings).filter((f) => f.ruleId === "INTAKE.SLOT");
+    expect(mis.map((f) => f.severity)).toEqual(["low"]);
   });
 
   it("every application carries evidence-backed findings with resolvable pointers", () => {

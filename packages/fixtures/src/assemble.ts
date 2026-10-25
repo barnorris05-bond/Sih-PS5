@@ -176,6 +176,9 @@ function valueOverrides(v: Values, inst: Institution): void {
       break;
     case "EOA-2026-0199": // K — mis-slotted upload (control)
       break;
+    case "INTK-2026-0233": // Tiruvalla — degraded scans are this control's legitimate variation
+      v.poorScan = true;
+      break;
     default:
       break;
   }
@@ -441,7 +444,9 @@ export function assembleDataset(rules: Rule[]): Dataset {
           source: inst.id,
           target: pid,
           type: "EMPLOYS",
-          props: { session: SESSION, from: link.from, to: link.to ?? "", source_doc: "faculty_roster" },
+          // Open-ended appointments marshal to null (single representation —
+          // computeGraphOverlap's defensive guard also accepts ""/missing).
+          props: { session: SESSION, from: link.from, to: link.to ?? null, source_doc: "faculty_roster" },
         });
       }
     }
