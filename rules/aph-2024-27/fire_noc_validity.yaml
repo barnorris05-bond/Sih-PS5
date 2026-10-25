@@ -8,8 +8,10 @@ applies_to:
   categories: [EOA, INTAKE_INCREASE, NEW_PROGRAMME]
   sessions: ["2026-27"]
 inputs:
+  # min_confidence >= the central per-field-type threshold (confidence.ts):
+  # fire_noc.valid_until is a date field (0.85), the record comparison keys too.
   - fact: fire_noc.valid_until
-    min_confidence: 0.80
+    min_confidence: 0.85
   - fact: fire_noc.record_valid_until
     min_confidence: 0.90
   - fact: session.start_date

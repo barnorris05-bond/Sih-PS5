@@ -166,6 +166,10 @@ export const VerificationAttempt = z.object({
   responseDigest: z.string().nullable().optional(),
   isMock: z.boolean(), // every mock source must carry this and be labelled in UI
   note: z.string().nullable().optional(), // connector note text shown in the timeline
+  /** retries recorded by the connector (timeout + backoff), e.g. 3 for fault 13 */
+  attempts: z.number().int().optional(),
+  /** true when the circuit breaker opened after exhausted retries */
+  circuitBreaker: z.boolean().optional(),
 });
 export type VerificationAttempt = z.infer<typeof VerificationAttempt>;
 export type FieldMatch = z.infer<typeof FieldMatch>;

@@ -9,6 +9,7 @@ import YAML from "yaml";
 import type { Fact, FindingClass, Rule, RuleResult, Severity, ApplicationCategory } from "@evidencegraph/domain";
 import { CHECKLIST_VERSION } from "@evidencegraph/domain";
 import { evalExpr, MissingFactError, ExprError, validateExpr } from "./expr.js";
+import { CONFIDENCE_THRESHOLDS, fieldKindForFact } from "./confidence.js";
 
 /* ---------------- Load ---------------- */
 
@@ -85,6 +86,15 @@ export function assertRuleIsValid(rule: Rule, file?: string): void {
     throw new RuleLoadError(`${where}: assert does not parse: ${check.error}`);
   }
   if (!rule.onFail.class) throw new RuleLoadError(`${where}: on_fail.class missing`);
+  /* Confidence config is centralised (confidence.ts): a rule input never
+   * relaxes the central per-field-type threshold. */
+  for (const input of rule.inputs) {
+    const required = CONFIDENCE_THRESHOLDS[fieldKindForFact(input.fact)];
+    const given = (input as { min_confidence?: number }).min_confidence;
+    if (typeof given === "number" && given < required) {
+      throw new RuleLoadError(`${where}: input ${input.fact} sets min_confidence ${given} below the central threshold ${required} for its field type`);
+    }
+  }
 }
 
 /** Load every `*.yaml` in a rule-pack directory. Throws when any file is unwell. */

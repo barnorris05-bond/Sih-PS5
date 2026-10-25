@@ -12,11 +12,14 @@ interface SelfCheckListProps {
 export function SelfCheckList({ appId }: SelfCheckListProps) {
   const { role } = useRoleStore();
 
-  const { data, isLoading } = useQuery<{ findings: Finding[] }>({
-    queryKey: ['findings-self-check', appId],
+  const { data, isLoading } = useQuery<{ findings: Finding[]; institution: string; openCount: number }>({
+    queryKey: ['self-check', appId],
     queryFn: async () => {
-      const res = await fetch(`/api/applications/${appId}/findings`, { headers: { 'x-eg-role': 'applicant', 'x-eg-pin': 'applicant' } });
-      return res.json() as Promise<{ findings: Finding[] }>;
+      // Self-check endpoint returns only fix-list items (no forensic signals,
+      // no triage score, no cross-app data). All roles can call this.
+      const res = await fetch(`/api/applications/${appId}/self-check`, { headers: { 'x-eg-role': role } });
+      if (!res.ok) throw new Error('Failed to load self-check');
+      return res.json() as Promise<{ findings: Finding[]; institution: string; openCount: number }>;
     },
   });
 
