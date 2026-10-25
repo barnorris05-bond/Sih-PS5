@@ -40,6 +40,33 @@ describe("APH 2024-27 rule pack", () => {
       expect(results.every((t) => t.passed), `${r.id} failed its tests`).toBe(true);
     }
   });
+
+  it("runRuleTests is pure: running them twice in one process is identical", () => {
+    const once = rules.map((r) => ({ id: r.id, results: runRuleTests(r) }));
+    const twice = rules.map((r) => ({ id: r.id, results: runRuleTests(r) }));
+    expect(JSON.stringify(twice)).toBe(JSON.stringify(once));
+  });
+
+  it("rule inputs never relax the central per-field-type confidence thresholds", async () => {
+    const { CONFIDENCE_THRESHOLDS, fieldKindForFact } = await import("./confidence.js");
+    for (const r of rules) {
+      for (const input of r.inputs) {
+        const required = CONFIDENCE_THRESHOLDS[fieldKindForFact(input.fact)];
+        const given = (input as { min_confidence?: number }).min_confidence;
+        if (typeof given === "number") {
+          expect(given, `${r.id}:${input.fact}`).toBeGreaterThanOrEqual(required);
+        }
+      }
+    }
+  });
+
+  it("a rule input below the central threshold fails the build", () => {
+    expect(() =>
+      parseRuleYaml(
+        `id: too_loose\nversion: 1\naph_ref: '[fill in: APH clause]'\ninputs:\n  - fact: faculty.roster_count\n    min_confidence: 0.50\nassert: 'true'\non_fail:\n  class: validity_gap\n  severity: low\n  message: 'x'\ntests:\n  - name: never\n    facts: {}\n    expect: pass\n`,
+      ),
+    ).toThrow(/central threshold/);
+  });
 });
 
 function fact(key: string, value: string | number, opts: Partial<Fact> = {}): Fact {
