@@ -168,8 +168,16 @@ export const VerificationAttempt = z.object({
   note: z.string().nullable().optional(), // connector note text shown in the timeline
   /** retries recorded by the connector (timeout + backoff), e.g. 3 for fault 13 */
   attempts: z.number().int().optional(),
+  retryDelaysMs: z.array(z.number().int().nonnegative()).optional(),
   /** true when the circuit breaker opened after exhausted retries */
   circuitBreaker: z.boolean().optional(),
+  /** Prefilled request queued for a human when automated verification is unavailable. */
+  manualRequest: z.object({
+    id: z.string(),
+    status: z.enum(["queued", "completed"]),
+    request: z.string(),
+    queuedAt: z.string(),
+  }).optional(),
 });
 export type VerificationAttempt = z.infer<typeof VerificationAttempt>;
 export type FieldMatch = z.infer<typeof FieldMatch>;
@@ -337,6 +345,8 @@ export const VerificationResult = z.object({
   fieldMatches: z.array(FieldMatch),
   note: z.string().optional(),
   circuitBreaker: z.boolean().optional(),
+  attempts: z.number().int().optional(),
+  retryDelaysMs: z.array(z.number().int().nonnegative()).optional(),
 });
 export type VerificationResult = z.infer<typeof VerificationResult>;
 

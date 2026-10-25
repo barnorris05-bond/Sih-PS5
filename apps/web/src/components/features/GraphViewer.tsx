@@ -10,14 +10,14 @@ interface GraphViewerProps {
 }
 
 const NODE_COLORS: Record<GraphNode['label'], string> = {
-  Institution: '#a6e22e',
-  Trust: '#66d9ef',
-  Person: '#f92672',
-  LandParcel: '#75715e',
-  FDR: '#e6db74',
-  Signatory: '#8B95A7',
-  StampImage: '#ae81ff',
-  Photo: '#ae81ff',
+  Institution: '#5bc0eb',
+  Trust: '#a78bfa',
+  Person: '#e879a6',
+  LandParcel: '#8b95a7',
+  FDR: '#f5b942',
+  Signatory: '#3ddc97',
+  StampImage: '#a78bfa',
+  Photo: '#e879a6',
 };
 
 export function GraphViewer({ subgraph, focusId }: GraphViewerProps) {
@@ -60,9 +60,9 @@ export function GraphViewer({ subgraph, focusId }: GraphViewerProps) {
           {
             selector: 'node',
             style: {
-              'background-color': (ele: cytoscape.NodeSingular) => NODE_COLORS[(ele.data('nodeType') as GraphNode['label']) ?? 'Institution'] ?? '#75715e',
+              'background-color': (ele: cytoscape.NodeSingular) => NODE_COLORS[(ele.data('nodeType') as GraphNode['label']) ?? 'Institution'] ?? '#8b95a7',
               'label': 'data(label)',
-              'color': '#f8f8f2',
+              'color': '#e6eaf2',
               'font-size': 10,
               'text-wrap': 'wrap',
               'text-max-width': '100px',
@@ -71,21 +71,21 @@ export function GraphViewer({ subgraph, focusId }: GraphViewerProps) {
               'width': (ele: cytoscape.NodeSingular) => ele.data('nodeType') === 'Institution' ? 40 : 24,
               'height': (ele: cytoscape.NodeSingular) => ele.data('nodeType') === 'Institution' ? 40 : 24,
               'border-width': (ele: cytoscape.NodeSingular) => ele.data('id') === focusId ? 2 : 0,
-              'border-color': '#a6e22e',
+              'border-color': '#5bc0eb',
             } as Record<string, unknown>,
           },
           {
             selector: 'edge',
             style: {
               'width': 1.5,
-              'line-color': (ele: cytoscape.EdgeSingular) => ele.data('severity') === 'high' ? '#f92672' : '#3e3d32',
+              'line-color': (ele: cytoscape.EdgeSingular) => ele.data('severity') === 'high' ? '#f2555a' : '#49566b',
               'line-style': (ele: cytoscape.EdgeSingular) => ['NEAR_DUPLICATE', 'CONFLICTS_WITH'].includes(ele.data('label') as string) ? 'dashed' : 'solid',
               'target-arrow-shape': 'triangle',
-              'target-arrow-color': (ele: cytoscape.EdgeSingular) => ele.data('severity') === 'high' ? '#f92672' : '#3e3d32',
+              'target-arrow-color': (ele: cytoscape.EdgeSingular) => ele.data('severity') === 'high' ? '#f2555a' : '#49566b',
               'curve-style': 'bezier',
               'label': 'data(label)',
               'font-size': 9,
-              'color': '#75715e',
+              'color': '#8b95a7',
               'text-rotation': 'autorotate',
             } as Record<string, unknown>,
           },

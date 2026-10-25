@@ -57,3 +57,12 @@ option judged closest to the architecture file.
 13. **`[fill in]` APH markers** remain in every rule file whose exact clause was not
     confirmed by the team; the UI renders a "clause to be confirmed" badge wherever such
     a rule is cited. No regulatory number is invented anywhere in the rule pack.
+
+14. **Fault severity.** Where the architecture fault table specifies a finding but no
+    severity, the fixture uses the severity already declared by the matching rule YAML.
+    This is a prototype behavior assumption, not a regulatory judgment.
+
+15. **Synthetic crop evidence.** Fixture crop references point to deterministic keys in
+    the synthetic crop inventory; the prototype does not store or display applicant PDF
+    images. Page and bounding-box geometry is retained so a real crop renderer can replace
+    the fixture renderer.

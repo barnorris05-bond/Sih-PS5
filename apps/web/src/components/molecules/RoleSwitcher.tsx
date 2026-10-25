@@ -21,7 +21,7 @@ export function RoleSwitcher() {
           cursor: 'pointer',
           outline: 'none',
         }}
-        aria-label="Switch role"
+        aria-label="Demo role switch"
       >
         <Select.Value>
           <RoleBadge role={role} />

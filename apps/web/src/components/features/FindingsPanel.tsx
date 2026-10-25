@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { Finding, FindingClass } from '@evidencegraph/domain';
+import type { EvidenceRef, Finding, FindingClass } from '@evidencegraph/domain';
 import { useRoleStore } from '@/store/role-store';
 import { FindingChip } from '@/components/atoms/FindingChip';
 import { Spinner } from '@/components/atoms/Spinner';
@@ -11,9 +11,10 @@ import { FINDING_CLASS_LABELS } from '@/lib/constants';
 interface FindingsPanelProps {
   appId: string;
   filterClass?: FindingClass;
+  onEvidenceSelect?: (evidence: EvidenceRef) => void;
 }
 
-export function FindingsPanel({ appId, filterClass }: FindingsPanelProps) {
+export function FindingsPanel({ appId, filterClass, onEvidenceSelect }: FindingsPanelProps) {
   const { role } = useRoleStore();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -59,7 +60,7 @@ export function FindingsPanel({ appId, filterClass }: FindingsPanelProps) {
               <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--color-text-muted)' }}>{clsFindings.length}</span>
             </button>
             {!isCollapsed && clsFindings.map((f) => (
-              <FindingCard key={f.id} finding={f} signalStrength={signalStrengths[f.id] as 'weak' | 'medium' | 'strong' | undefined} />
+              <FindingCard key={f.id} finding={f} signalStrength={signalStrengths[f.id] as 'weak' | 'medium' | 'strong' | undefined} onEvidenceSelect={onEvidenceSelect} />
             ))}
           </div>
         );
@@ -68,7 +69,7 @@ export function FindingsPanel({ appId, filterClass }: FindingsPanelProps) {
   );
 }
 
-function FindingCard({ finding, signalStrength }: { finding: Finding; signalStrength?: 'weak' | 'medium' | 'strong' }) {
+function FindingCard({ finding, signalStrength, onEvidenceSelect }: { finding: Finding; signalStrength?: 'weak' | 'medium' | 'strong'; onEvidenceSelect?: (evidence: EvidenceRef) => void }) {
   const [expanded, setExpanded] = useState(false);
   const sevColor = finding.severity === 'high' ? 'var(--color-alert)' : finding.severity === 'medium' ? 'var(--color-validity)' : 'var(--color-text-muted)';
 
@@ -105,6 +106,24 @@ function FindingCard({ finding, signalStrength }: { finding: Finding; signalStre
           ▸ {finding.suggestedAction}
         </div>
       )}
+      <div style={{ display: 'grid', gap: 5, marginTop: 8 }}>
+        {finding.evidence.map((evidence, index) => evidence.kind === 'absence_receipt' ? (
+          <div key={`${finding.id}-receipt-${index}`} role="note" style={{ padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6, background: 'var(--color-raised)', fontSize: 11, color: 'var(--color-text-muted)' }}>
+            <strong style={{ display: 'block', color: 'var(--color-text)', fontWeight: 600 }}>Required item not found in the submission</strong>
+            <span>Checklist slot: {evidence.checklist_slot} · Version: {evidence.checklist_version}</span>
+          </div>
+        ) : (
+          <button
+            key={`${finding.id}-evidence-${index}`}
+            type="button"
+            onClick={() => onEvidenceSelect?.(evidence)}
+            disabled={!onEvidenceSelect}
+            style={{ width: 'fit-content', padding: 0, border: 0, background: 'transparent', color: 'var(--color-accent)', fontSize: 11, textAlign: 'left', cursor: onEvidenceSelect ? 'pointer' : 'default' }}
+          >
+            View evidence · {evidence.factId ?? evidence.cropKey}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

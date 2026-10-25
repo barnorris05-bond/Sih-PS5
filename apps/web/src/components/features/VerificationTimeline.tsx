@@ -70,7 +70,15 @@ export function VerificationTimeline({ appId }: VerificationTimelineProps) {
 
               {v.status === 'source_unavailable' && (
                 <div style={{ fontSize: 12, color: 'var(--color-validity)', marginTop: 4 }}>
-                  ⚡ Circuit breaker — source offline or API unavailable. Manual review required.
+                  <strong>Retry history:</strong> {v.attempts ?? 0} attempts{v.retryDelaysMs?.length ? ` · backoff ${v.retryDelaysMs.map((delay) => `${delay}ms`).join(', ')}` : ''}.
+                  {' '}Circuit breaker: {v.circuitBreaker ? 'open' : 'closed'}.
+                </div>
+              )}
+              {v.manualRequest && (
+                <div style={{ marginTop: 8, padding: 10, border: '1px dashed var(--color-border-strong)', borderRadius: 6, background: 'var(--color-raised)' }}>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 3 }}>Manual verification request · {v.manualRequest.status}</div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text)' }}>{v.manualRequest.request}</div>
+                  <div style={{ marginTop: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--color-text-faint)' }}>{v.manualRequest.id}</div>
                 </div>
               )}
             </div>

@@ -5,7 +5,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { assembleDataset, type Dataset } from '@evidencegraph/fixtures';
-import { loadRulePack, verifyChain, dailyDigest, tamperRow, appendRow } from '@evidencegraph/engine';
+import { loadRulePack, verifyChain, dailyDigest, tamperRow, appendRow, applyCorrection as applyFactCorrection } from '@evidencegraph/engine';
 import { computeMetrics } from '@evidencegraph/engine';
 import type {
   ApplicationSummary,
@@ -103,8 +103,17 @@ function getDatasetInternal(): Dataset {
   for (const c of _patch.corrections) {
     const fact = _ds.facts.find((f) => f.id === c.factId);
     if (fact) {
-      (fact as Record<string, unknown>)['value'] = c.correctedValue;
-      (fact as Record<string, unknown>)['quarantine'] = null;
+      const { original, replacement } = applyFactCorrection(fact, { value: c.correctedValue, officer: c.officer, at: c.at });
+      Object.assign(fact, original);
+      _ds.facts.push(replacement);
+      appendRow(_ledger!, {
+        at: c.at,
+        actor: c.officer,
+        action: 'fact.corrected',
+        entity: 'Fact',
+        entityId: replacement.id,
+        payload: { appId: fact.applicationId, factId: fact.id, replacementFactId: replacement.id, correctedValue: c.correctedValue },
+      });
     }
   }
   for (const d of _patch.decisions) {
@@ -280,25 +289,28 @@ export function applyCorrection(
   const ds = getDatasetInternal();
   const fact = ds.facts.find((f) => f.id === factId && f.applicationId === appId);
   if (!fact) throw new Error(`Fact ${factId} not found`);
+  if (fact.supersededBy) throw new Error(`Fact ${factId} has already been superseded`);
 
-  (fact as Record<string, unknown>)['value'] = correctedValue;
-  (fact as Record<string, unknown>)['quarantine'] = null;
+  const at = new Date().toISOString();
+  const { original, replacement } = applyFactCorrection(fact, { value: correctedValue, officer, at });
+  Object.assign(fact, original);
+  ds.facts.push(replacement);
 
   appendRow(_ledger!, {
-    at: new Date().toISOString(),
+    at,
     actor: officer,
     action: 'fact.corrected',
     entity: 'Fact',
-    entityId: factId,
-    payload: { appId, factId, correctedValue },
+    entityId: replacement.id,
+    payload: { appId, factId, replacementFactId: replacement.id, correctedValue },
   });
 
   const patch = loadPatch();
-  patch.corrections.push({ factId, correctedValue, officer, at: new Date().toISOString() });
+  patch.corrections.push({ factId, correctedValue, officer, at });
   savePatch(patch);
   _patch = patch;
 
-  return fact;
+  return replacement;
 }
 
 export function tamperLedgerRow(seq: number, patch: Record<string, unknown>): AuditRow {

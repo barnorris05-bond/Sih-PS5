@@ -23,7 +23,7 @@ on_fail:
   message: 'Fire NOC shows valid until {fire_noc.valid_until}; the fire department record says {fire_noc.record_valid_until} and the session starts {session.start_date}.'
 on_insufficient_evidence:
   route: manual_queue
-  message: 'Fire NOC or issuer record unreadable/offline — routed to the manual queue (suspicious is not forged).'
+  message: 'Fire NOC or issuer record unreadable/offline — routed to the manual queue for verification.'
 tests:
   - name: valid through session start
     facts:

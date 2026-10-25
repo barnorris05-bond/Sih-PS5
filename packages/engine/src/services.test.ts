@@ -47,6 +47,9 @@ function findingOver(findingClass: Finding["findingClass"], severity: Finding["s
 }
 
 const field50: Fact = { ...factFor("land.deed_area", 0.97, "3.20"), id: "f_land.deed_area" };
+const presenceRules = new Map([
+  ["demo_rule", { checklistItem: { slot: "trust_documents", docType: "trust_affidavit" } }],
+]);
 
 describe("confidence gate", () => {
   it("holds facts below their field-kind threshold", () => {
@@ -91,6 +94,17 @@ describe("critic", () => {
     expect(v.decision).toBe("drop");
   });
 
+  it("drops findings citing an unknown version of an existing rule", () => {
+    const finding = { ...findingOver("potential_discrepancy"), ruleVersion: 2 } as Finding;
+    const verdict = critique(finding, {
+      facts: new Map([[field50.id, field50]]),
+      knownRuleIds: new Set(["demo_rule"]),
+      knownRuleVersions: new Map([["demo_rule", [1]]]),
+    });
+    expect(verdict.decision).toBe("drop");
+    if (verdict.decision === "drop") expect(verdict.reason).toMatch(/unknown rule version/);
+  });
+
   it("drops quarantined evidence entirely", () => {
     const held: Fact = { ...field50, quarantine: "confidence below threshold", supersededBy: null };
     const v = critique(findingOver("potential_discrepancy"), { facts: new Map([[held.id, held]]), knownRuleIds: new Set(["demo_rule"]) });
@@ -107,13 +121,23 @@ describe("critic", () => {
     expect(explainabilityCoverage(res.kept)).toBe(1);
   });
 
-  it("drops an unresolved pointer for EVERY other finding class, not just one", () => {
+  it("drops empty-evidence findings for EVERY non-presence finding class", () => {
     const noContext = { facts: new Map<string, Fact>(), knownRuleIds: new Set(["demo_rule"]) };
     for (const cls of ["validity_gap", "potential_discrepancy", "anomaly_signal", "confirmed_violation"] as const) {
-      const f = findingOver(cls);
+      const f = { ...findingOver(cls), evidence: [] } as unknown as Finding;
       const v = critique(f, noContext);
       expect(v.decision, `class ${cls} must be dropped on unresolvable evidence`).toBe("drop");
     }
+  });
+
+  it("drops evidence missing its discriminator instead of defaulting to a fact reference", () => {
+    const malformed = {
+      ...findingOver("potential_discrepancy"),
+      evidence: [{ factId: "not-a-stored-fact", role: "input" }],
+    } as unknown as Finding;
+    const result = critique(malformed, { facts: new Map(), knownRuleIds: new Set(["demo_rule"]) });
+    expect(result.decision).toBe("drop");
+    if (result.decision === "drop") expect(result.reason).toMatch(/schema validation/);
   });
 
   it("keeps a mix of one real and one unresolved pointer, listing only the real one", () => {
@@ -131,6 +155,35 @@ describe("critic", () => {
     expect(res.kept[0]?.evidence[0]).toMatchObject({ factId: "f_land.deed_area" });
   });
 
+  it("drops a visual fact pointer when its crop is not stored", () => {
+    const visual = findingOver("potential_discrepancy");
+    const verdict = critique(visual, {
+      facts: new Map([[field50.id, field50]]),
+      knownRuleIds: new Set(["demo_rule"]),
+      cropKeys: new Set(),
+    });
+    expect(verdict.decision).toBe("drop");
+    if (verdict.decision === "drop") expect(verdict.reason).toMatch(/crop/);
+  });
+
+  it("keeps the resolvable fact and removes only an unresolved crop pointer", () => {
+    const base = findingOver("potential_discrepancy");
+    const mixed = {
+      ...base,
+      evidence: [
+        base.evidence[0],
+        { kind: "crop_ref" as const, cropKey: "crops/missing.png", page: 2, factId: null, role: "input" },
+      ],
+    } as Finding;
+    const kept = critiqueAll([mixed], {
+      facts: new Map([[field50.id, field50]]),
+      knownRuleIds: new Set(["demo_rule"]),
+      cropKeys: new Set(["crops/f_land.deed_area.png"]),
+    }).kept;
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.evidence).toEqual([base.evidence[0]]);
+  });
+
   it("accepts a well-formed absence receipt for a presence completeness_gap", () => {
     const receipt = {
       kind: "absence_receipt" as const,
@@ -139,15 +192,36 @@ describe("critic", () => {
       checklist_version: CHECKLIST_VERSION,
       checked_at: "2026-09-01T00:00:00Z",
     };
-    const f = { ...findingOver("completeness_gap"), evidence: [receipt] } as Finding;
+    const f = { ...findingOver("completeness_gap"), createdBy: "rule:demo_rule", evidence: [receipt] } as Finding;
     const ctx = {
       facts: new Map<string, Fact>(),
       knownRuleIds: new Set(["demo_rule"]),
+      presenceRules,
       checklist: { version: CHECKLIST_VERSION, slots: new Map([["trust_documents", ["trust_affidavit", "trust_registration"] as readonly string[]]]) },
       documentsByAppSlot: new Map([["a|trust_documents", ["trust_registration"] as readonly string[]]]),
     };
     const v = critique(f, ctx);
     expect(v.decision).toBe("keep");
+  });
+
+  it("rejects an absence receipt from a rule without a declared presence checklist item", () => {
+    const receipt = {
+      kind: "absence_receipt" as const,
+      checklist_slot: "trust_documents",
+      expected_doc_type: "trust_affidavit",
+      checklist_version: CHECKLIST_VERSION,
+      checked_at: "2026-09-01T00:00:00Z",
+    };
+    const f = { ...findingOver("completeness_gap"), createdBy: "agent:cross_check", evidence: [receipt] } as Finding;
+    const result = critique(f, {
+      facts: new Map(),
+      knownRuleIds: new Set(["demo_rule"]),
+      checklist: { version: CHECKLIST_VERSION, slots: new Map([["trust_documents", ["trust_affidavit"]]]) },
+      documentsByAppSlot: new Map([["a|trust_documents", []]]),
+      presenceRules,
+    });
+    expect(result.decision).toBe("drop");
+    if (result.decision === "drop") expect(result.reason).toMatch(/presence rule/);
   });
 
   it("fails closed when the checklist definition is not provided", () => {
@@ -158,8 +232,8 @@ describe("critic", () => {
       checklist_version: CHECKLIST_VERSION,
       checked_at: "2026-09-01T00:00:00Z",
     };
-    const f = { ...findingOver("completeness_gap"), evidence: [receipt] } as Finding;
-    const v = critique(f, { facts: new Map(), knownRuleIds: new Set(["demo_rule"]) });
+    const f = { ...findingOver("completeness_gap"), createdBy: "rule:demo_rule", evidence: [receipt] } as Finding;
+    const v = critique(f, { facts: new Map(), knownRuleIds: new Set(["demo_rule"]), presenceRules });
     expect(v.decision).toBe("drop");
     if (v.decision === "drop") expect(v.reason).toMatch(/no checklist provided/);
   });
@@ -172,10 +246,11 @@ describe("critic", () => {
       checklist_version: CHECKLIST_VERSION,
       checked_at: "2026-09-01T00:00:00Z",
     };
-    const f = { ...findingOver("completeness_gap"), evidence: [receipt] } as Finding;
+    const f = { ...findingOver("completeness_gap"), createdBy: "rule:demo_rule", evidence: [receipt] } as Finding;
     const ctx = {
       facts: new Map<string, Fact>(),
       knownRuleIds: new Set(["demo_rule"]),
+      presenceRules,
       checklist: { version: CHECKLIST_VERSION, slots: new Map([["trust_documents", ["trust_affidavit"] as readonly string[]]]) },
       documentsByAppSlot: new Map([["a|trust_documents", ["trust_affidavit"] as readonly string[]]]),
     };
@@ -188,6 +263,7 @@ describe("critic", () => {
     const mk = (o: Partial<{ slot: string; type: string; version: string; cls: Finding["findingClass"] }>) =>
       ({
         ...findingOver(o.cls ?? "completeness_gap"),
+        createdBy: "rule:demo_rule",
         evidence: [
           {
             kind: "absence_receipt" as const,
@@ -200,7 +276,7 @@ describe("critic", () => {
       } as Finding);
     const checklist = { version: CHECKLIST_VERSION, slots: new Map([["trust_documents", ["trust_affidavit"] as readonly string[]]]) };
     const docs = new Map([["a|trust_documents", [] as readonly string[]]]);
-    const ctx = (f: Finding) => ({ facts: new Map<string, Fact>(), knownRuleIds: new Set(["demo_rule"]), checklist, documentsByAppSlot: docs });
+    const ctx = (f: Finding) => ({ facts: new Map<string, Fact>(), knownRuleIds: new Set(["demo_rule"]), presenceRules, checklist, documentsByAppSlot: docs });
     const unknownVersion = critique(mk({ version: "aph-1999-00" }), ctx(mk({})));
     expect(unknownVersion.decision).toBe("drop");
     const unknownSlot = critique(mk({ slot: "no_such_slot" }), ctx(mk({})));
@@ -218,10 +294,11 @@ describe("critic", () => {
       checklist_version: CHECKLIST_VERSION,
       checked_at: "2026-09-01T00:00:00Z",
     };
-    const f = { ...findingOver("completeness_gap"), evidence: [receipt, { kind: "fact_ref" as const, factId: "f_nope", page: null, bbox: null, cropKey: null, role: "input" }] } as Finding;
+    const f = { ...findingOver("completeness_gap"), createdBy: "rule:demo_rule", evidence: [receipt, { kind: "fact_ref" as const, factId: "f_nope", page: null, bbox: null, cropKey: null, role: "input" }] } as Finding;
     const ctx = {
       facts: new Map<string, Fact>(),
       knownRuleIds: new Set(["demo_rule"]),
+      presenceRules,
       checklist: { version: CHECKLIST_VERSION, slots: new Map([["trust_documents", ["trust_affidavit"] as readonly string[]]]) },
       documentsByAppSlot: new Map([["a|trust_documents", [] as readonly string[]]]),
     };

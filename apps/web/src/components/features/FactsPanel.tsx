@@ -70,7 +70,10 @@ function FactRow({ fact, selected, onClick }: { fact: Fact; selected: boolean; o
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--color-accent)' }}>{fact.key}</span>
-        {fact.quarantine && (
+        {fact.supersededBy && (
+          <span style={{ fontSize: 10, color: 'var(--color-text-faint)', padding: '1px 5px', border: '1px solid var(--color-border)', borderRadius: 3 }}>SUPERSEDED</span>
+        )}
+        {fact.quarantine && !fact.supersededBy && (
           <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--color-validity)', padding: '1px 5px', background: 'color-mix(in srgb, var(--color-validity) 12%, transparent)', borderRadius: 3 }}>
             <ShieldAlert size={10} />HELD AT GATE
           </span>
@@ -85,7 +88,7 @@ function FactRow({ fact, selected, onClick }: { fact: Fact; selected: boolean; o
         <span style={{ fontSize: 10, color: 'var(--color-text-faint)' }}>{fact.source}</span>
         {fact.asOf && <Timestamp iso={fact.asOf} mode="date" />}
       </div>
-      {fact.quarantine && (
+      {fact.quarantine && !fact.supersededBy && (
         <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-validity)', fontStyle: 'italic' }}>{fact.quarantine}</div>
       )}
     </div>

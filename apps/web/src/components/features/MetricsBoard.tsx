@@ -23,7 +23,7 @@ export function MetricsBoard() {
   return (
     <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--color-text-faint)', fontStyle: 'italic' }}>
-        All figures computed from the fixture dataset — not simulated.
+        Computed from the deterministic fixture set; no live services or applicant records are queried.
       </div>
 
       {/* Stat cards */}
@@ -52,7 +52,7 @@ export function MetricsBoard() {
               />
               <Bar dataKey="accuracy" radius={[3, 3, 0, 0]}>
                 {metrics.fieldAccuracyPerDocType.map((entry, i) => (
-                  <Cell key={i} fill={entry.accuracy > 0.9 ? '#a6e22e' : entry.accuracy > 0.7 ? '#66d9ef' : '#f92672'} />
+                  <Cell key={i} fill={entry.accuracy > 0.9 ? '#3ddc97' : entry.accuracy > 0.7 ? '#5bc0eb' : '#f2555a'} />
                 ))}
               </Bar>
             </BarChart>

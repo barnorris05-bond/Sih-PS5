@@ -1,6 +1,7 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import type { ApplicationSummary } from '@evidencegraph/domain';
 import { useRoleStore } from '@/store/role-store';
 import { SlaChip } from '@/components/atoms/SlaChip';
@@ -53,7 +54,7 @@ export function QueueTable() {
                 className="queue-row"
               >
                 <td style={tdStyle}>
-                  <div style={{ fontWeight:500,color:'var(--color-text)' }}>{app.institution.name}</div>
+                  <Link href={`/applications/${app.id}/overview`} onClick={(event) => event.stopPropagation()} style={{ fontWeight:500,color:'var(--color-text)',textDecoration:'none' }}>{app.institution.name}</Link>
                   <div style={{ fontSize:11,fontFamily:'var(--font-mono)',color:'var(--color-text-muted)' }}>{app.id}</div>
                 </td>
                 <td style={tdStyle}>

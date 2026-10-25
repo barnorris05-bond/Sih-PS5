@@ -21,14 +21,14 @@ export default function DemoPage() {
           </thead>
           <tbody>
             {[
-              ['Rule engine', '✓ YAML rules, real assertion eval', '—'],
-              ['Findings', '✓ Computed from rules', '—'],
-              ['Ledger', '✓ SHA-256 hash chain', '—'],
-              ['OCR extraction', '—', '✓ MOCK:ocr+layout'],
-              ['External connectors', '—', '✓ MOCK responses'],
-              ['Neo4j graph', '—', '✓ In-memory mirror'],
-              ['PDF rendering', '—', '✓ Synthetic SVG'],
-              ['Metrics', '✓ Computed from fixture data', '—'],
+              ['Rules + Critic', 'YAML evaluation, schemas, evidence and wording checks', '—'],
+              ['Cross-checks', 'Deterministic rules and graph overlap', '—'],
+              ['Ledger', 'SHA-256 hash chain with demo HMAC digest', '—'],
+              ['OCR, vision, language model', '—', 'Synthetic fixture output'],
+              ['External connectors', '—', 'Mock records and retry behavior'],
+              ['Neo4j + Qdrant', '—', 'In-memory graph and similarity fixtures'],
+              ['Document pages + crops', '—', 'Synthetic SVG pages and crop references'],
+              ['Metrics', 'Computed from deterministic fixture data', '—'],
             ].map(([comp, real, sim]) => (
               <tr key={comp as string} style={{ borderBottom: '1px solid var(--color-border)' }}>
                 <td style={{ padding: '7px 12px', color: 'var(--color-text)' }}>{comp}</td>

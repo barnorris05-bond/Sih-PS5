@@ -12,8 +12,8 @@
  * and the Critic validates the receipt against the checklist definition and
  * the documents actually filed in that slot for this application.
  */
-import type { Fact, Finding } from "@evidencegraph/domain";
-import { CHECKLIST_VERSION } from "@evidencegraph/domain";
+import type { Fact, Finding, Rule } from "@evidencegraph/domain";
+import { CHECKLIST_VERSION, EvidenceRef, Finding as FindingSchema } from "@evidencegraph/domain";
 import { containsBannedWord } from "./wording.js";
 
 export type CriticVerdict =
@@ -31,15 +31,21 @@ export type ChecklistDef = {
 export type CriticContext = {
   facts: Map<string, Fact>; // all facts incl. superseded, by id
   knownRuleIds: Set<string>;
+  /** Published versions by rule id, when the caller has the complete rule pack. */
+  knownRuleVersions?: Map<string, readonly number[]>;
   /** checklist definition — required to validate absence receipts */
   checklist?: ChecklistDef;
   /** documents filed, keyed `${applicationId}|${slot}` → doc types present */
   documentsByAppSlot?: Map<string, readonly string[]>;
+  /** Stored crop objects available at this boundary; omitted only by small unit fixtures. */
+  cropKeys?: Set<string>;
+  /** Rules that may mint absence receipts, including the slot they guard. */
+  presenceRules?: Map<string, Pick<Rule, "checklistItem">>;
 };
 
 /** Live fact lookup used by every evidence check. */
 function liveFact(ctx: CriticContext, factId: string): Fact | undefined {
-  if (!factId || factId === "none") return undefined; // legacy fake pointer
+  if (!factId || factId === "none") return undefined; // legacy unresolved pointer
   const f = ctx.facts.get(factId);
   return f && !f.supersededBy ? f : undefined;
 }
@@ -52,6 +58,14 @@ function appSlotKey(finding: Finding, slot: string): string {
 function validateReceipt(finding: Finding, receipt: { checklist_slot: string; expected_doc_type: string; checklist_version: string }, ctx: CriticContext): string | null {
   if (finding.findingClass !== "completeness_gap") {
     return `absence receipt is only valid evidence for completeness_gap findings (this is ${finding.findingClass})`;
+  }
+  const ruleId = finding.createdBy.startsWith("rule:") ? finding.createdBy.slice("rule:".length) : "";
+  const presenceRule = ctx.presenceRules?.get(ruleId);
+  if (!presenceRule?.checklistItem) {
+    return `absence receipt requires a known presence rule with a checklist item (finding cites ${ruleId || "no rule"})`;
+  }
+  if (presenceRule.checklistItem.slot !== receipt.checklist_slot || presenceRule.checklistItem.docType !== receipt.expected_doc_type) {
+    return `absence receipt does not match the checklist item guarded by presence rule ${ruleId}`;
   }
   const cl = ctx.checklist;
   if (!cl || !ctx.documentsByAppSlot) {
@@ -80,6 +94,13 @@ function validateReceipt(finding: Finding, receipt: { checklist_slot: string; ex
 }
 
 export function critique(finding: Finding, ctx: CriticContext): CriticVerdict {
+  const parsedFinding = FindingSchema.safeParse(finding);
+  if (!parsedFinding.success) return { decision: "drop", reason: `finding failed schema validation: ${parsedFinding.error.issues[0]?.message ?? "invalid finding"}` };
+  finding = parsedFinding.data;
+  for (const evidence of finding.evidence) {
+    const parsedEvidence = EvidenceRef.safeParse(evidence);
+    if (!parsedEvidence.success) return { decision: "drop", reason: `evidence failed schema validation: ${parsedEvidence.error.issues[0]?.message ?? "invalid evidence"}` };
+  }
   /* 1. wording guard */
   const wordHit = containsBannedWord(finding.summary);
   if (wordHit) return { decision: "drop", reason: `banned wording "${wordHit.word}" in summary` };
@@ -88,10 +109,14 @@ export function critique(finding: Finding, ctx: CriticContext): CriticVerdict {
   if (finding.createdBy.startsWith("rule:") && !ctx.knownRuleIds.has(finding.ruleId)) {
     return { decision: "drop", reason: `rule ${finding.ruleId} v${finding.ruleVersion} does not exist` };
   }
+  if (finding.createdBy.startsWith("rule:") && ctx.knownRuleVersions && !ctx.knownRuleVersions.get(finding.ruleId)?.includes(finding.ruleVersion)) {
+    return { decision: "drop", reason: `unknown rule version ${finding.ruleId} v${finding.ruleVersion}` };
+  }
 
   /* 3. evidence must resolve. Fact/crop pointers need at least one live fact;
    * receipts are validated slot-by-slot. Receipts may only back presence gaps. */
   const resolved: Fact[] = [];
+  let resolvedCropCount = 0;
   const receipts: Finding["evidence"] = [];
   const unresolvedPointers: string[] = [];
   for (const e of finding.evidence) {
@@ -99,17 +124,24 @@ export function critique(finding: Finding, ctx: CriticContext): CriticVerdict {
       receipts.push(e);
       continue;
     }
-    if (!e.factId) {
-      if (e.kind === "fact_ref") unresolvedPointers.push(`fact_ref ${e.factId}`);
-      continue; // crop_ref without a fact still counts via its crop below
-    }
-    if (e.kind === "fact_ref" && e.factId === "none") {
+    if (e.kind === "fact_ref" && (!e.factId || e.factId === "none")) {
       unresolvedPointers.push('fact_ref "none"');
       continue;
     }
-    const f = liveFact(ctx, e.factId);
-    if (f) resolved.push(f);
-    else unresolvedPointers.push(`fact ${e.factId}`);
+    const fact = e.factId ? liveFact(ctx, e.factId) : undefined;
+    const cropResolves = Boolean(e.cropKey) && (!ctx.cropKeys || ctx.cropKeys.has(e.cropKey!));
+    const visualNeedsCrop = e.page != null || e.bbox != null;
+    const visualResolves = !visualNeedsCrop || cropResolves;
+    if (e.factId && !fact) unresolvedPointers.push(`fact ${e.factId}`);
+    if (e.cropKey && !cropResolves) unresolvedPointers.push(`crop ${e.cropKey}`);
+    if (visualNeedsCrop && !e.cropKey) unresolvedPointers.push(`visual evidence for ${e.factId ?? "crop"} has no stored crop`);
+    if (e.kind === "fact_ref") {
+      if (fact && visualResolves && (!e.cropKey || cropResolves)) resolved.push(fact);
+    } else if (e.factId && !fact) {
+      // A crop ref that names a fact must resolve both pointers.
+    } else if (cropResolves && visualResolves) {
+      resolvedCropCount += 1;
+    }
   }
   for (const r of receipts) {
     if (r.kind !== "absence_receipt") continue;
@@ -119,11 +151,11 @@ export function critique(finding: Finding, ctx: CriticContext): CriticVerdict {
   if (receipts.length > 0) {
     // A presence gap may be receipt-only. Any fact pointer alongside a receipt
     // must also resolve, otherwise the mixture is unresolvable.
-    if (resolved.length === 0 && unresolvedPointers.length > 0) {
+    if (resolved.length === 0 && resolvedCropCount === 0 && unresolvedPointers.length > 0) {
       return { decision: "drop", reason: `unresolvable evidence beside absence receipt: ${unresolvedPointers.join(", ")}` };
     }
-  } else if (resolved.length === 0 && finding.evidence.length > 0) {
-    return { decision: "drop", reason: "no evidence pointer resolves to a stored live fact" };
+  } else if (resolved.length === 0 && resolvedCropCount === 0 && finding.evidence.length > 0) {
+    return { decision: "drop", reason: `no evidence pointer resolves to a stored live fact or crop${unresolvedPointers.length ? `: ${unresolvedPointers.join(", ")}` : ""}` };
   }
 
   /* 4. a finding that cites a page/bbox must have a crop (stored evidence crop) */
@@ -131,11 +163,10 @@ export function critique(finding: Finding, ctx: CriticContext): CriticVerdict {
     (e): e is Exclude<typeof e, { kind: "absence_receipt" }> =>
       e.kind !== "absence_receipt" && (e.bbox != null || e.page != null),
   );
-  if (visualEvidence.length > 0 && visualEvidence.every((e) => !e.cropKey)) {
+  if (visualEvidence.length > 0 && visualEvidence.every((e) => !e.cropKey || (ctx.cropKeys && !ctx.cropKeys.has(e.cropKey)))) {
     return {
-      decision: "downgrade",
-      reason: "visual evidence cited without a stored crop — downgraded to low pending crop resolution",
-      severity: "low",
+      decision: "drop",
+      reason: "visual evidence does not resolve to a stored crop",
     };
   }
 
@@ -221,8 +252,10 @@ export function critiqueAll(
 function pruneUnresolvable(f: Finding, ctx: CriticContext): Finding {
   const ev = f.evidence.filter((e) => {
     if (e.kind === "absence_receipt") return validateReceipt(f, e, ctx) === null;
-    if (!e.factId) return e.kind === "crop_ref";
-    return liveFact(ctx, e.factId) !== undefined;
+    const factResolves = !e.factId || liveFact(ctx, e.factId) !== undefined;
+    const cropResolves = !e.cropKey || !ctx.cropKeys || ctx.cropKeys.has(e.cropKey);
+    const visualHasCrop = (e.page == null && e.bbox == null) || Boolean(e.cropKey && cropResolves);
+    return factResolves && cropResolves && visualHasCrop;
   });
   return ev.length === f.evidence.length ? f : { ...f, evidence: ev };
 }

@@ -152,7 +152,7 @@ c:\Users\Norris\Desktop\SIH_PS5\
 │       ├── ghost_faculty.yaml
 │       ├── land_area_form_vs_deed.yaml
 │       └── trust_affidavit_presence.yaml
-├── EvidenceGraph Architecture.html
+├── EvidenceGraph_Architecture.html
 ├── EvidenceGraph_Agent_Prompt.md
 ├── package.json
 ├── pnpm-lock.yaml

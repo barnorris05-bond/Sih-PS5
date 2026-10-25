@@ -1,4 +1,4 @@
-# SPEC_DIGEST — EvidenceGraph (source: `EvidenceGraph Architecture.html`, read in full)
+# SPEC_DIGEST — EvidenceGraph (source: `EvidenceGraph_Architecture.html`, read in full)
 
 Terminology below is used verbatim across the codebase (helpers/labels live in `packages/domain`).
 

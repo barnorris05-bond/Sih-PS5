@@ -87,7 +87,7 @@ export function BboxViewer({ document, selectedPage = 1, highlightBbox, bboxes, 
               fill="color-mix(in srgb, var(--color-accent) 15%, transparent)"
               stroke="var(--color-accent)"
               strokeWidth={2}
-              style={{ animation: 'bbox-pulse 1s ease infinite alternate' }}
+              style={{ animation: 'bbox-pulse 240ms ease-out 1', animationFillMode: 'forwards' }}
             />
           )}
         </svg>

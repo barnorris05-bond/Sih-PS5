@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 import { useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUiStore } from '@/store/ui-store';
@@ -48,20 +48,31 @@ export function DemoBar() {
       {/* Beat chips */}
       <div style={{ display: 'flex', gap: 4, overflow: 'hidden', flex: 1 }}>
         {BEATS.map((beat, i) => (
-          <button
+          <a
             key={i}
-            onClick={() => go(i)}
+            href={beat.href}
+            onClick={() => setDemoStep(i)}
             style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, border: 'none', cursor: 'pointer', background: i === demoStep ? 'var(--color-accent)' : 'var(--color-raised)', color: i === demoStep ? 'var(--color-canvas)' : 'var(--color-text-muted)', fontSize: 11, fontWeight: i === demoStep ? 700 : 400, whiteSpace: 'nowrap', transition: 'background 150ms ease, color 150ms ease', flexShrink: 0 }}
           >
             <span style={{ fontFamily: 'var(--font-mono)' }}>{beat.time}</span>
             <span style={{ display: i === demoStep ? 'inline' : 'none' }}> · {beat.label}</span>
-          </button>
+          </a>
         ))}
       </div>
 
       <div style={{ fontSize: 12, color: 'var(--color-text-muted)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {current?.label}
       </div>
+
+      <button
+        onClick={async () => {
+          const response = await fetch('/api/demo/reset', { method: 'POST' });
+          if (response.ok) window.location.reload();
+        }}
+        style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 11, whiteSpace: 'nowrap' }}
+      >
+        Reset demo data
+      </button>
 
       <button onClick={() => go(Math.min(demoStep + 1, BEATS.length - 1))} disabled={demoStep === BEATS.length - 1} style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 6, padding: '4px 8px', cursor: demoStep === BEATS.length - 1 ? 'not-allowed' : 'pointer', color: 'var(--color-text-muted)', opacity: demoStep === BEATS.length - 1 ? 0.4 : 1 }}>
         <ChevronRight size={14} />

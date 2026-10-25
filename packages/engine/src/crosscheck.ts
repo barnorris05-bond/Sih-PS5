@@ -1,5 +1,5 @@
 /**
- * Cross-check (§04 Cross-check agent, §05 graph, §09 fraud patterns).
+ * Cross-check (§04 Cross-check agent, §05 graph, §09 cross-institution patterns).
  * In-memory mirror of the Neo4j model with the same query semantics; the real
  * Cypher text is exported verbatim for the UI Cypher drawer.
  */

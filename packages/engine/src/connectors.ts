@@ -41,8 +41,8 @@ export const MOCK_ISSUER_RECORDS: Record<string, MockRecord> = {
     "cin:U80904TN2013NPL069201": "name:Cedarville Rural Education Society|status:under_process",
   },
   gstin_pan: {
-    "gstin:29AAECV1234F1Z5": "entity:Vikramsheela Education Foundation|status:active",
-    "gstin:32AAETS9876K1Z2": "entity:Silverleaf Education Trust|status:active",
+    "gstin:SYNTH-REG-001": "entity:Vikramsheela Education Foundation|status:active",
+    "gstin:SYNTH-REG-002": "entity:Silverleaf Education Trust|status:active",
   },
 };
 
@@ -251,6 +251,7 @@ export const CONNECTORS: Connector[] = [
         refId: doc.refId ?? null,
         fieldMatches: [],
         circuitBreaker: true,
+        retryDelaysMs: [250, 500],
         note: "MOCK fire-department endpoint: timeout on all 3 attempts with backoff — circuit opened. Status stays source_unavailable and the case is routed to the manual queue.",
         latencyMs,
         attempts: 3,

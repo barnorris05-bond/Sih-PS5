@@ -4,38 +4,38 @@
 
 @theme {
   /* Canvas & surfaces */
-  --color-canvas: #121212;
-  --color-surface: #1a1a1a;
-  --color-raised: #1e1e1e;
-  --color-overlay: #252525;
-  --color-border: #272822;
-  --color-border-strong: #3e3d32;
+  --color-canvas: #0b0e13;
+  --color-surface: #11151c;
+  --color-raised: #171c25;
+  --color-overlay: #1d2430;
+  --color-border: #323b4b;
+  --color-border-strong: #49566b;
 
   /* Text */
-  --color-text: #f8f8f2;
-  --color-text-muted: #75715e;
-  --color-text-faint: #49483e;
+  --color-text: #e6eaf2;
+  --color-text-muted: #8b95a7;
+  --color-text-faint: #8590a2;
 
   /* Accents */
-  --color-accent: #66d9ef;
-  --color-accent-lime: #a6e22e;
-  --color-accent-weak: color-mix(in srgb, #66d9ef 14%, transparent);
+  --color-accent: #5bc0eb;
+  --color-accent-lime: #3ddc97;
+  --color-accent-weak: color-mix(in srgb, #5bc0eb 14%, transparent);
 
   /* Finding classes */
   --color-completeness: #6aa9ff;
-  --color-validity: #e6db74;
-  --color-discrepancy: #ae81ff;
-  --color-anomaly: #f92672;
-  --color-violation: #f92672;
+  --color-validity: #f5b942;
+  --color-discrepancy: #a78bfa;
+  --color-anomaly: #e879a6;
+  --color-violation: #f2555a;
 
   /* Verification statuses */
-  --color-verified: #a6e22e;
-  --color-mismatch: #f92672;
-  --color-expired: #e6db74;
-  --color-pending: #75715e;
+  --color-verified: #3ddc97;
+  --color-mismatch: #f2555a;
+  --color-expired: #f5b942;
+  --color-pending: #8b95a7;
 
   /* Alert */
-  --color-alert: #f92672;
+  --color-alert: #f2555a;
 
   /* Typography */
   --font-sans: 'Inter Variable', system-ui, sans-serif;
@@ -45,8 +45,8 @@
   --duration-fast: 150ms;
   --duration-menu: 160ms;
   --duration-panel: 220ms;
-  --duration-view: 350ms;
-  --ease-crisp: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-view: 240ms;
+  --ease-crisp: cubic-bezier(0.2, 0, 0, 1);
   --ease-enter: cubic-bezier(0.2, 0, 0, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
 
@@ -68,20 +68,20 @@
   --color-border-strong: #c4cad6;
   --color-text: #161b22;
   --color-text-muted: #5a6577;
-  --color-text-faint: #8b95a7;
+  --color-text-faint: #5a6577;
   --color-accent: #0b6fa4;
-  --color-accent-lime: #3a7c00;
+  --color-accent-lime: #157347;
   --color-accent-weak: color-mix(in srgb, #0b6fa4 14%, transparent);
   --color-completeness: #1a5fb4;
-  --color-validity: #b07a00;
+  --color-validity: #8a5a00;
   --color-discrepancy: #6642c4;
-  --color-anomaly: #c0006a;
-  --color-violation: #c00020;
-  --color-verified: #1a7a50;
-  --color-mismatch: #c00020;
-  --color-expired: #b07a00;
+  --color-anomaly: #a52d68;
+  --color-violation: #b4232b;
+  --color-verified: #157347;
+  --color-mismatch: #b4232b;
+  --color-expired: #8a5a00;
   --color-pending: #5a6577;
-  --color-alert: #c00020;
+  --color-alert: #b4232b;
   color-scheme: light;
 }
 

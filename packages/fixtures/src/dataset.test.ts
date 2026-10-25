@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import { INSTITUTIONS, FAULT_MATRIX } from "./institutions.js";
 import { loadRulePack } from "../../engine/src/rules.js";
 import { matchNames } from "../../engine/src/crosscheck.js";
-import { assembleDataset } from "./assemble.js";
+import { computeGraphOverlap } from "../../engine/src/crosscheck.js";
+import { assembleDataset, CHECKLIST } from "./assemble.js";
+import { containsBannedWord } from "../../engine/src/wording.js";
 import type { Rule, Finding } from "@evidencegraph/domain";
 import type { Dataset } from "./assemble.js";
 
@@ -33,6 +35,13 @@ describe("dataset assembly", () => {
     const b = JSON.stringify(stripLatency(assembleDataset(loadRulePack(RULE_DIR) as Rule[])));
     expect(b).toBe(a);
   });
+
+  it("every YAML presence rule names a real checklist slot and document type", () => {
+    const absent = rules.filter((rule) => rule.checklistItem && !CHECKLIST.some(
+      (item) => item.expectedSlot === rule.checklistItem?.slot && item.docType === rule.checklistItem?.docType,
+    ));
+    expect(absent.map((rule) => rule.id)).toEqual([]);
+  });
 });
 
 function stripLatency(ds: Dataset): unknown {
@@ -47,8 +56,8 @@ describe("the 13 planted faults are all observable", () => {
     { n: 2, app: "EOA-2026-0142", match: (f) => f.ruleId === "land_area_form_vs_deed" && f.findingClass === "potential_discrepancy" },
     { n: 3, app: "EOA-2026-0117", match: (f) => f.ruleId === "ghost_faculty_cross_institution" && f.findingClass === "potential_discrepancy" },
     { n: 3, app: "INTK-2026-0208", match: (f) => f.ruleId === "ghost_faculty_cross_institution" && f.findingClass === "potential_discrepancy" },
-    { n: 4, app: "EOA-2026-0117", match: (f) => f.ruleId === "fdr_single_pledge" && f.findingClass === "anomaly_signal" && f.crossApplication },
-    { n: 4, app: "NEW-2026-0031", match: (f) => f.ruleId === "fdr_single_pledge" && f.findingClass === "anomaly_signal" },
+    { n: 4, app: "EOA-2026-0117", match: (f) => f.ruleId === "fdr_single_pledge" && f.findingClass === "potential_discrepancy" && f.crossApplication },
+    { n: 4, app: "NEW-2026-0031", match: (f) => f.ruleId === "fdr_single_pledge" && f.findingClass === "potential_discrepancy" },
     { n: 5, app: "EOA-2026-0187", match: (f) => f.findingClass === "anomaly_signal" && /classroom|photo/i.test(f.ruleId + f.summary) },
     { n: 6, app: "INTK-2026-0208", match: (f) => f.findingClass === "anomaly_signal" && /seal/i.test(f.summary) },
     { n: 7, app: "INTK-2026-0229", match: (f) => f.ruleId === "trust_affidavit_presence" && f.findingClass === "completeness_gap" },
@@ -75,11 +84,28 @@ describe("the 13 planted faults are all observable", () => {
     expect(mismatch).toEqual([]);
   });
 
-  it("fault 13 (fire department offline) leaves the verification pending with a MOCK circuit breaker", () => {
+  it("fault 7 is raised at intake with a checklist-backed absence receipt", () => {
+    const finding = byApp("INTK-2026-0229", dataset.findings).find((item) => item.ruleId === "trust_affidavit_presence");
+    expect(finding).toBeDefined();
+    expect(finding?.evidence).toEqual([expect.objectContaining({
+      kind: "absence_receipt",
+      checklist_slot: "trust_documents",
+      expected_doc_type: "trust_affidavit",
+      checklist_version: "aph-2024-27",
+    })]);
+    const docReader = dataset.runs["INTK-2026-0229"]?.find((event) => event.node === "doc_reader");
+    expect(Date.parse(finding?.createdAt ?? "9999-12-31")).toBeLessThan(Date.parse(docReader?.startedAt ?? "0000-01-01"));
+  });
+
+  it("fault 13 (fire department offline) records source_unavailable after retries with a MOCK circuit breaker", () => {
     const noAnswer = dataset.verifications.filter((v) => v.applicationId === "NEW-2026-0058" && v.connector === "fire_department");
     expect(noAnswer.length).toBe(1);
     expect(noAnswer[0]?.status).toBe("source_unavailable");
     expect(noAnswer[0]?.isMock).toBe(true);
+    expect(noAnswer[0]?.attempts).toBe(3);
+    expect(noAnswer[0]?.retryDelaysMs).toEqual([250, 500]);
+    expect(noAnswer[0]?.circuitBreaker).toBe(true);
+    expect(noAnswer[0]?.manualRequest).toMatchObject({ status: "queued", request: expect.stringContaining("Confirm fire NOC") });
   });
 
   it("fault 9 shows a verification mismatch against the record", () => {
@@ -87,6 +113,41 @@ describe("the 13 planted faults are all observable", () => {
     expect(v.length).toBeGreaterThanOrEqual(1);
     // The certificate's holder disagrees with the NAD record — that IS the fault.
     expect(v[0]?.status).toBe("mismatch");
+  });
+
+  it("declarative fault matrix matches each expected rule, class, severity and connector status", () => {
+    for (const fault of FAULT_MATRIX) {
+      for (const appId of fault.institutions) {
+        for (const expected of fault.expectedFindings) {
+          const found = byApp(appId, dataset.findings).filter((finding) => finding.ruleId === expected.ruleId);
+          expect(found, `fault ${fault.n} on ${appId} should have exactly one ${expected.ruleId} finding`).toHaveLength(1);
+          expect(found[0]).toMatchObject({ findingClass: expected.findingClass, severity: expected.severity });
+          expect(found[0]?.evidence.length, `fault ${fault.n} finding must retain evidence`).toBeGreaterThan(0);
+        }
+        if (fault.verificationStatus) {
+          const connector = fault.verificationStatus === "mismatch" ? "digilocker_nad" : "fire_department";
+          const attempts = dataset.verifications.filter((attempt) => attempt.applicationId === appId && attempt.connector === connector);
+          expect(attempts, `fault ${fault.n} connector attempt on ${appId}`).toHaveLength(1);
+          expect(attempts[0]?.status).toBe(fault.verificationStatus);
+          if (fault.n === 13) expect(attempts[0]?.manualRequest?.status).toBe("queued");
+        }
+        if (fault.n === 11) {
+          expect(byApp(appId, dataset.findings).filter((finding) => finding.ruleId === "faculty_count_form_vs_roster")).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it("fault 12 changes only the anomaly signal when its hidden text is removed", () => {
+    const withoutHiddenText = assembleDataset(rules, { includePromptInjection: false });
+    const appId = "NEW-2026-0058";
+    const withInjection = byApp(appId, dataset.findings);
+    const withoutInjection = byApp(appId, withoutHiddenText.findings);
+    const signal = withInjection.filter((finding) => finding.ruleId === "DOCREADER.INJECTION");
+    expect(signal).toHaveLength(1);
+    expect(signal[0]?.findingClass).toBe("anomaly_signal");
+    expect(withInjection.filter((finding) => finding.ruleId !== "DOCREADER.INJECTION")).toEqual(withoutInjection);
+    expect(withoutInjection.some((finding) => finding.ruleId === "DOCREADER.INJECTION")).toBe(false);
   });
 });
 
@@ -185,6 +246,9 @@ describe("five clean controls", () => {
       (f) => f.ruleId === "ghost_faculty_cross_institution" && f.evidence.some((e) => e.kind === "fact_ref" && e.factId.includes("emp-81004")),
     );
     expect(moveHits).toEqual([]);
+    const controlGraph = { nodes: new Map(dataset.graphNodes.map((item) => [item.id, item])), edges: dataset.graphEdges };
+    const evaluatedPairs = computeGraphOverlap(controlGraph).ghostFacultyPairs.filter((pair) => pair.personId === "person:emp-81004");
+    expect(evaluatedPairs, "the mid-year move was evaluated by the graph and cleared because its dates do not overlap").toEqual([]);
     // Bhiwadi mis-slot control: exactly one low-severity completeness gap.
     const mis = byApp("EOA-2026-0199", dataset.findings).filter((f) => f.ruleId === "INTAKE.SLOT");
     expect(mis.map((f) => f.severity)).toEqual(["low"]);
@@ -196,5 +260,15 @@ describe("five clean controls", () => {
       f.evidence.flatMap((e) => (e.kind !== "fact_ref" || e.factId === "none" ? [] : factIds.has(e.factId) ? [] : [{ finding: f.id, evidence: e.factId }])),
     );
     expect(orphans).toEqual([]);
+  });
+
+  it("generated findings, letters, rules and fixture page text pass the wording gate", () => {
+    const strings = [
+      ...dataset.findings.flatMap((finding) => [finding.summary, finding.detail ?? "", finding.suggestedAction ?? ""]),
+      ...dataset.letters.map((letter) => letter.body),
+      ...dataset.rules.flatMap((rule) => [rule.aphRef, rule.onFail.message, rule.onInsufficientEvidence?.message ?? ""]),
+      ...dataset.documents.flatMap((doc) => doc.pages.flatMap((page) => page.lines.map((line) => line.text))),
+    ];
+    expect(strings.flatMap((text) => containsBannedWord(text) ? [text] : [])).toEqual([]);
   });
 });

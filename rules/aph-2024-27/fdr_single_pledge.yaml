@@ -12,7 +12,7 @@ applies_to:
 inputs: []
 assert: pairs_count == 0
 on_fail:
-  class: anomaly_signal
+  class: potential_discrepancy
   severity: high
   message: 'This FDR is pledged by more than one institution this session: {pairs}.'
 tests:
