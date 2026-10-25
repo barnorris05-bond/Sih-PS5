@@ -6,6 +6,11 @@ aph_ref: "[fill in: APH 2024-27 clause — trust affidavit requirement]"
 applies_to:
   categories: [EOA, INTAKE_INCREASE, NEW_PROGRAMME]
   sessions: ["2026-27"]
+# The checklist item guarded by this presence rule — the typed absence receipt
+# cites this slot and expected document type.
+checklist_item:
+  slot: trust_documents
+  doc_type: trust_affidavit
 inputs:
   - fact: trust.affidavit.executed_on
     min_confidence: 0.80

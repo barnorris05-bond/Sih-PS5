@@ -314,6 +314,7 @@ export function conflictFindingsFromFacts(facts: Fact[], app: { id: string; regi
           confidence: 0.9,
           summary: `${c.label} disagrees across sources: ${rows}.`,
           evidence: list.map((f) => ({
+            kind: "fact_ref" as const,
             factId: f.id,
             page: f.page ?? null,
             bbox: f.bbox ?? null,

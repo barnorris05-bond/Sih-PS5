@@ -47,10 +47,54 @@ export type ApplicationCategory = (typeof APPLICATION_CATEGORIES)[number];
 export const APPLICATION_STATUSES = ["in_review", "manual_queue", "awaiting_officer", "resolved"] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
-/* ---------------- Facts (§06) ---------------- */
-
-export const Bbox = z.tuple([z.number(), z.number(), z.number(), z.number()]);
+/* ---------------- Facts (§06) ---------------- */export const Bbox = z.tuple([z.number(), z.number(), z.number(), z.number()]);
 export type Bbox = z.infer<typeof Bbox>;
+
+/**
+ * Evidence model: a pointer either resolves to a stored fact (with an optional
+ * stored crop), to a stored crop alone, or — for the one legitimate exception —
+ * asserts that a required checklist slot was checked and was empty (§01, §04).
+ * Every other finding must carry at least one resolvable fact/crop pointer.
+ */
+export const FactEvidenceRef = z.object({
+  kind: z.literal("fact_ref"),
+  factId: z.string(),
+  page: z.number().int().nullable().optional(),
+  bbox: Bbox.nullable().optional(),
+  cropKey: z.string().nullable().optional(),
+  role: z.string(), // e.g. "claimed", "reference", "signal"
+});
+export type FactEvidenceRef = z.infer<typeof FactEvidenceRef>;
+
+export const CropEvidenceRef = z.object({
+  kind: z.literal("crop_ref"),
+  cropKey: z.string(),
+  page: z.number().int().nullable().optional(),
+  bbox: Bbox.nullable().optional(),
+  factId: z.string().nullable().optional(), // crop crops may exist without a fact row
+  role: z.string(),
+});
+export type CropEvidenceRef = z.infer<typeof CropEvidenceRef>;
+
+/**
+ * Absence receipt — allowed ONLY for completeness_gap findings from presence
+ * rules: the checked result of finding a required checklist slot empty.
+ * `{ factId: "none" }`-style fake pointers are not accepted evidence.
+ */
+export const AbsenceReceipt = z.object({
+  kind: z.literal("absence_receipt"),
+  checklist_slot: z.string(),
+  expected_doc_type: z.string(),
+  checklist_version: z.string(),
+  checked_at: z.string(), // ISO instant of the intake agent's slot check
+});
+export type AbsenceReceipt = z.infer<typeof AbsenceReceipt>;
+
+export const EvidenceRef = z.discriminatedUnion("kind", [FactEvidenceRef, CropEvidenceRef, AbsenceReceipt]);
+export type EvidenceRef = z.infer<typeof EvidenceRef>;
+
+/** Version string cited by absence receipts; the checklist definition lives with the rule pack name. */
+export const CHECKLIST_VERSION = "aph-2024-27";
 
 export const Fact = z.object({
   id: z.string(),
@@ -71,15 +115,6 @@ export const Fact = z.object({
   quarantine: z.string().nullable().optional(), // reason string when quarantined
 });
 export type Fact = z.infer<typeof Fact>;
-
-export const EvidenceRef = z.object({
-  factId: z.string(),
-  page: z.number().int().nullable().optional(),
-  bbox: Bbox.nullable().optional(),
-  cropKey: z.string().nullable().optional(),
-  role: z.string(), // e.g. "claimed", "reference", "signal"
-});
-export type EvidenceRef = z.infer<typeof EvidenceRef>;
 
 /* ---------------- Findings (§06 + example §07) ---------------- */
 
@@ -248,6 +283,10 @@ export const Rule = z.object({
     }),
   ),
   assert: z.string(),
+  /** presence rules carry the checklist item they guard, to mint typed absence receipts */
+  checklistItem: z
+    .object({ slot: z.string(), docType: z.string() })
+    .optional(),
   graphQuery: z.string().optional(), // for graph-type rules ("ghost faculty" etc)
   onFail: z.object({
     class: z.enum(FINDING_CLASSES),

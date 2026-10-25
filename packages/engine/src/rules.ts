@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import YAML from "yaml";
 import type { Fact, FindingClass, Rule, RuleResult, Severity, ApplicationCategory } from "@evidencegraph/domain";
+import { CHECKLIST_VERSION } from "@evidencegraph/domain";
 import { evalExpr, MissingFactError, ExprError, validateExpr } from "./expr.js";
 
 /* ---------------- Load ---------------- */
@@ -23,6 +24,12 @@ function hydrateRule(raw: Record<string, unknown>): Rule {
     sessions: ((raw.applies_to as Record<string, string[]> | undefined)?.sessions ?? ["2026-27"]) as string[],
     inputs: (raw.inputs ?? []) as Rule["inputs"],
     assert: String(raw.assert),
+    checklistItem: raw.checklist_item
+      ? {
+          slot: String((raw.checklist_item as Record<string, unknown>).slot ?? ""),
+          docType: String((raw.checklist_item as Record<string, unknown>).doc_type ?? ""),
+        }
+      : undefined,
     graphQuery: raw.graph_query ? String(raw.graph_query) : undefined,
     onFail: {
       class: (raw.on_fail as Record<string, string>).class as FindingClass,
@@ -112,6 +119,8 @@ export type FactIndex = {
   session: string;
   category: ApplicationCategory;
   applicationId: string;
+  /** deterministic intake-check timestamp used on absence receipts */
+  intakeAt: string;
 };
 
 /** result of the in-memory graph queries, shared with graph-type rules */
@@ -136,7 +145,7 @@ export function buildFactIndex(
     byKey.set(f.key, list);
   }
   const all = new Map(facts.map((f) => [f.id, f]));
-  return { byKey, all, graphOverlap, session, category, applicationId };
+  return { byKey, all, graphOverlap, session, category, applicationId, intakeAt: "2026-01-01T00:00:00Z" };
 }
 
 /** Resolve an input fact: latest recorded value for the key (optionally confidence-gated). */
@@ -160,6 +169,18 @@ function template(msg: string, ctx: FactIndex, used: Fact[]): string {
     if (!fact) return key;
     return `${fact.value}${fact.unit ? " " + fact.unit : ""}`;
   });
+}
+
+/** Mint a typed absence receipt; only rules that declare their checklist item may. */
+function absenceReceipt(rule: Rule, ctx: FactIndex): RuleResult["evidence"][number] | null {
+  if (!rule.checklistItem) return null;
+  return {
+    kind: "absence_receipt",
+    checklist_slot: rule.checklistItem.slot,
+    expected_doc_type: rule.checklistItem.docType,
+    checklist_version: CHECKLIST_VERSION,
+    checked_at: ctx.intakeAt,
+  };
 }
 
 export function runRule(rule: Rule, ctx: FactIndex): RuleResult {
@@ -191,15 +212,19 @@ export function runRule(rule: Rule, ctx: FactIndex): RuleResult {
         };
       }
       if (factMissing && /present|has_fact|required\(/.test(rule.assert) && rule.onFail.class === "completeness_gap") {
-        return {
-          ...base,
-          outcome: "fail",
-          message: template(rule.onFail.message, ctx, used),
-          findingClass: rule.onFail.class,
-          severity: rule.onFail.severity,
-          // Absence receipt: the evidence for "item missing" IS the empty row.
-          evidence: [{ factId: "none", page: null, bbox: null, cropKey: null, role: "delta" }],
-        };
+        // Typed absence receipt — validity is checked by the Critic against the
+        // checklist definition and the documents filed in that slot.
+        const receipt = absenceReceipt(rule, ctx);
+        if (receipt) {
+          return {
+            ...base,
+            outcome: "fail",
+            message: template(rule.onFail.message, ctx, used),
+            findingClass: rule.onFail.class,
+            severity: rule.onFail.severity,
+            evidence: [receipt],
+          };
+        }
       }
       insufficient = true;
     }
@@ -213,7 +238,7 @@ export function runRule(rule: Rule, ctx: FactIndex): RuleResult {
       message: rule.onInsufficientEvidence?.message ?? "Insufficient evidence — routed to field review",
       findingClass: null,
       severity: null,
-      evidence: used.map((f) => ({ factId: f.id, page: f.page ?? null, bbox: f.bbox ?? null, cropKey: null, role: "input" })),
+      evidence: used.map((f) => ({ kind: "fact_ref" as const, factId: f.id, page: f.page ?? null, bbox: f.bbox ?? null, cropKey: null, role: "input" })),
     };
   }
   let outcome: boolean | "missing";
@@ -228,7 +253,7 @@ export function runRule(rule: Rule, ctx: FactIndex): RuleResult {
         message: template(rule.onFail.message, ctx, used),
         findingClass: rule.onFail.class,
         severity: rule.onFail.severity,
-        evidence: used.map((f) => ({ factId: f.id, page: f.page ?? null, bbox: f.bbox ?? null, cropKey: null, role: "input" })),
+        evidence: used.map((f) => ({ kind: "fact_ref" as const, factId: f.id, page: f.page ?? null, bbox: f.bbox ?? null, cropKey: null, role: "input" })),
       };
     }
     if (e instanceof ExprError && /Cannot order null/.test(e.message)) {
@@ -238,7 +263,7 @@ export function runRule(rule: Rule, ctx: FactIndex): RuleResult {
         message: "Input missing — routed to field review",
         findingClass: null,
         severity: null,
-        evidence: used.map((f) => ({ factId: f.id, page: f.page ?? null, bbox: f.bbox ?? null, cropKey: null, role: "input" })),
+        evidence: used.map((f) => ({ kind: "fact_ref" as const, factId: f.id, page: f.page ?? null, bbox: f.bbox ?? null, cropKey: null, role: "input" })),
       };
     }
     // The rule itself raised during evaluation: treat as insufficiency,
@@ -262,6 +287,7 @@ export function runRule(rule: Rule, ctx: FactIndex): RuleResult {
     findingClass: rule.onFail.class,
     severity: rule.onFail.severity,
     evidence: used.map((f) => ({
+      kind: "fact_ref" as const,
       factId: f.id,
       page: f.page ?? null,
       bbox: f.bbox ?? null,
@@ -331,6 +357,7 @@ export function runRuleTests(rule: Rule): { name: string; passed: boolean; got?:
       session: String(factsIn["session"] ?? "2026-27"),
       category: "EOA",
       applicationId: "test",
+      intakeAt: "2026-06-01T00:00:00Z",
     };
     let i = 0;
     const factIds = new Map<string, string>();

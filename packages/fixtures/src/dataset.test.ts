@@ -89,6 +89,50 @@ describe("the 13 planted faults are all observable", () => {
   });
 });
 
+describe("fault 3 and 4 evidence anchors", () => {
+  it("ghost-faculty findings cite the roster-entry facts of BOTH member rosters", () => {
+    for (const app of ["INTK-2026-0208", "EOA-2026-0117"]) {
+      const ghost = byApp(app, dataset.findings).filter((f) => f.ruleId === "ghost_faculty_cross_institution");
+      expect(ghost.length).toBeGreaterThanOrEqual(1);
+      for (const f of ghost) {
+        expect(f.evidence.length).toBeGreaterThanOrEqual(2);
+        const factsById = new Map(dataset.facts.map((x) => [x.id, x]));
+        for (const e of f.evidence) {
+          const fact = e.kind === "fact_ref" ? factsById.get(e.factId) : undefined;
+          expect(fact, `${e.kind} pointer ${"factId" in e ? e.factId : e.kind} must resolve`).toBeDefined();
+          if (!fact) continue;
+          expect(fact.key).toBe("faculty.roster_entry");
+          expect(["INTK-2026-0208", "EOA-2026-0117"]).toContain(fact.applicationId);
+          expect(fact.documentId, "roster entry must come from a stored document").not.toBeNull();
+          expect(fact.page).not.toBeNull();
+          expect(fact.bbox).not.toBeNull();
+        }
+      }
+    }
+  });
+
+  it("reused-FDR findings cite the FDR facts with their crops on both members", () => {
+    for (const app of ["EOA-2026-0117", "NEW-2026-0031"]) {
+      const reuse = byApp(app, dataset.findings).filter((f) => f.ruleId === "fdr_single_pledge");
+      expect(reuse.length).toBeGreaterThanOrEqual(1);
+      for (const f of reuse) {
+        expect(f.evidence.length).toBeGreaterThanOrEqual(2);
+        const factsById = new Map(dataset.facts.map((x) => [x.id, x]));
+        for (const e of f.evidence) {
+          const fact = e.kind === "fact_ref" ? factsById.get(e.factId) : undefined;
+          expect(fact).toBeDefined();
+          if (!fact) continue;
+          expect(fact.key).toBe("fdr.ref");
+          expect(["EOA-2026-0117", "NEW-2026-0031"]).toContain(fact.applicationId);
+          expect(fact.page).not.toBeNull();
+          expect(fact.bbox).not.toBeNull();
+        }
+        expect(f.crossApplication).toBe(true);
+      }
+    }
+  });
+});
+
 describe("five clean controls", () => {
   it("have zero high-severity findings", () => {
     const highs = controlApps.flatMap((id) => byApp(id, dataset.findings)).filter((f) => f.severity === "high");
@@ -97,7 +141,9 @@ describe("five clean controls", () => {
 
   it("every application carries evidence-backed findings with resolvable pointers", () => {
     const factIds = new Set(dataset.facts.map((f) => f.id));
-    const orphans = dataset.findings.flatMap((f) => f.evidence.filter((e) => e.factId !== "none" && !factIds.has(e.factId)).map((e) => ({ finding: f.id, evidence: e.factId })));
+    const orphans = dataset.findings.flatMap((f) =>
+      f.evidence.flatMap((e) => (e.kind !== "fact_ref" || e.factId === "none" ? [] : factIds.has(e.factId) ? [] : [{ finding: f.id, evidence: e.factId }])),
+    );
     expect(orphans).toEqual([]);
   });
 });

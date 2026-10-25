@@ -17,6 +17,7 @@ import type {
   RunEvent,
   VerificationAttempt,
 } from "@evidencegraph/domain";
+import { CHECKLIST_VERSION } from "@evidencegraph/domain";
 import * as E from "@evidencegraph/engine";
 import {
   AREA_TOLERANCE_ACRES,
@@ -548,23 +549,28 @@ function assembleFindings(ctx: {
         }
         continue; // clean controls just don't have it — no finding
       } else if (doc.checklistSlot !== expectedSlot) {
-        findings.push(
-          E.buildFinding({
-            id: `mis_slot_${inst.id}_${item.key}`,
-            applicationId: inst.id,
-            region: inst.region,
-            ruleId: "INTAKE.SLOT",
-            ruleVersion: 1,
-            aphRef: "checklist " + inst.category,
-            findingClass: "completeness_gap",
-            severity: "low",
-            confidence: 0.99,
-            summary: `${item.label} was uploaded into the ${doc.checklistSlot} slot; expected ${expectedSlot}.`,
-            evidence: [{ factId: appFacts[0]?.id ?? "none", cropKey: null, role: "slot" }],
-            createdAt: mintiso(inst, 0.05),
-            createdBy: "agent:intake",
-          }),
-        );
+        // Evidence is the fact minted from the misplaced document itself; fall
+        // back to any fact of the application. Both resolve under the Critic.
+        const evFact = appFacts.find((fl) => fl.documentId === doc.id) ?? appFacts[0];
+        if (evFact) {
+          findings.push(
+            E.buildFinding({
+              id: `mis_slot_${inst.id}_${item.key}`,
+              applicationId: inst.id,
+              region: inst.region,
+              ruleId: "INTAKE.SLOT",
+              ruleVersion: 1,
+              aphRef: "checklist " + inst.category,
+              findingClass: "completeness_gap",
+              severity: "low",
+              confidence: 0.99,
+              summary: `${item.label} was uploaded into the ${doc.checklistSlot} slot; expected ${expectedSlot}.`,
+              evidence: [{ kind: "fact_ref", factId: evFact.id, page: evFact.page ?? null, bbox: evFact.bbox ?? null, cropKey: `crops/${evFact.id}.png`, role: "slot" }],
+              createdAt: mintiso(inst, 0.05),
+              createdBy: "agent:intake",
+            }),
+          );
+        }
       }
     }
 
@@ -595,20 +601,53 @@ function assembleFindings(ctx: {
       }
       if (rule.kind === "graph") {
         f.crossApplication = true;
-        const kind = /GHOST/.test(rule.id)
+        const kind = /GHOST|FACULTY/i.test(rule.id)
           ? overlap.ghostFacultyPairs
-          : /FDR/.test(rule.id)
+          : /SINGLE_PLEDGE|FDR/i.test(rule.id)
             ? overlap.reusedFdrPairs
             : overlap.recycledLandPairs;
         f.relatedApplicationIds = kind.flatMap((p) => p.institutionIds).filter((x) => x !== inst.id);
-        // Graph findings still carry one resolvable local evidence anchor from
-        // this application (the roster / FDR fact); the cross-institution pair
-        // itself is viewable in the Cypher drawer.
+        // Evidence anchors are the actual conflicting facts: the roster entry
+        // rows (one per member institution's roster, each with its own page/
+        // bbox) for ghost faculty, and the FDR facts of both members for the
+        // reused FDR. Anchors fall back to a local fact only when a pair fact
+        // is not present on the dataset (never for the fixture pairs).
         if (f.evidence.length === 0) {
-          const anchorKey = /FDR/.test(rule.id) ? "fdr.amount" : /GHOST|FACULTY/.test(rule.id) ? "faculty.roster_count" : "land.deed_area";
-          const anchor = appFacts.find((fk) => fk.key === anchorKey) ?? appFacts[0];
-          if (anchor) {
-            f.evidence = [{ factId: anchor.id, page: anchor.page ?? null, bbox: anchor.bbox ?? null, cropKey: anchor.id ? `crops/${anchor.id}.png` : null, role: "signal" }];
+          for (const pair of kind) {
+            if (!pair.institutionIds.includes(inst.id)) continue;
+            let pairFacts: Fact[];
+            if (/GHOST|FACULTY/i.test(rule.id)) {
+              const facultyId = (pair as { personId: string }).personId.replace("person:", "");
+              pairFacts = facts.filter(
+                (fl) => fl.key === "faculty.roster_entry" && fl.value === facultyId && pair.institutionIds.includes(fl.applicationId),
+              );
+            } else if (/SINGLE_PLEDGE|FDR/i.test(rule.id)) {
+              const fdrId = (pair as { fdrId: string }).fdrId.replace("fdr:", "");
+              pairFacts = facts.filter(
+                (fl) => fl.key === "fdr.ref" && fl.value === fdrId && pair.institutionIds.includes(fl.applicationId),
+              );
+            } else {
+              const parcelId = (pair as { parcelId: string }).parcelId.replace("land:", "");
+              pairFacts = facts.filter((fl) => fl.key === "land.survey_no" && String(fl.value) === parcelId && pair.institutionIds.includes(fl.applicationId));
+            }
+            for (const pf of pairFacts) {
+              f.evidence.push({
+                kind: "fact_ref",
+                factId: pf.id,
+                page: pf.page ?? null,
+                bbox: pf.bbox ?? null,
+                cropKey: pf.documentId ? `crops/${pf.id}.png` : null,
+                role: "conflicting_entry",
+              });
+            }
+          }
+          // Local fallback kept resolvable for land rules without pair facts.
+          if (f.evidence.length === 0) {
+            const anchorKey = /FDR/.test(rule.id) ? "fdr.amount" : /GHOST|FACULTY/.test(rule.id) ? "faculty.roster_count" : "land.deed_area";
+            const anchor = appFacts.find((fk) => fk.key === anchorKey) ?? appFacts[0];
+            if (anchor) {
+              f.evidence = [{ kind: "fact_ref", factId: anchor.id, page: anchor.page ?? null, bbox: anchor.bbox ?? null, cropKey: anchor.id ? `crops/${anchor.id}.png` : null, role: "signal" }];
+            }
           }
         }
       }
@@ -641,8 +680,8 @@ function assembleFindings(ctx: {
         detail: p.detail,
         evidence: [
           {
-            factId: appFacts.find((f) => f.key === "fire_noc.valid_until" || f.key === "degree.holder")?.id ?? "none",
-            page: 1,
+            factId: appFacts.find((f) => f.key === "fire_noc.valid_until" || f.key === "degree.holder")?.id ?? appFacts[0]?.id ?? "fx_missing",
+            kind: "fact_ref",
             bbox: [64, 285, 460, 330],
             cropKey: doc ? `crops/${doc.id}_b1.png` : null,
             role: "signal",
@@ -672,7 +711,7 @@ function assembleFindings(ctx: {
         confidence: 0.88,
         summary: `A seal crop on this application's affidavit is near-identical to seals on affidavits of ${others.length} other trust(s) this session.`,
         detail: "Qdrant stamps_signatures collection — precomputed on fixture graph (MOCK). Same issuer can legitimately reuse a digital seal; medium signal, officer reviews.",
-        evidence: [{ factId: appFacts[0]?.id ?? "none", page: 1, bbox: [430, 455, 760, 500], cropKey: `crops/${stampHit.hash}.png`, role: "signal" }],
+        evidence: [{ kind: "fact_ref", factId: appFacts[0]?.id ?? "fx_missing", page: 1, bbox: [430, 455, 760, 500], cropKey: `crops/${stampHit.hash}.png`, role: "signal" }],
         createdAt: mintiso(inst, 4.5),
         createdBy: "agent:forensics",
         suggestedAction: "Compare seals at source (issuing authority) — request original affidavits.",
@@ -697,7 +736,7 @@ function assembleFindings(ctx: {
         confidence: 0.85,
         summary: `The classroom photograph matches an upload by ${others.join(", ")} this session.`,
         detail: "Qdrant infra_photos collection — precomputed on fixture graph (MOCK). Vision output is advisory and can only request more evidence or an inspection.",
-        evidence: [{ factId: appFacts[0]?.id ?? "none", page: 1, bbox: [64, 360, 520, 445], cropKey: `crops/${photoHit.hash}.png`, role: "signal" }],
+        evidence: [{ kind: "fact_ref", factId: appFacts[0]?.id ?? "fx_missing", page: 1, bbox: [64, 360, 520, 445], cropKey: `crops/${photoHit.hash}.png`, role: "signal" }],
         createdAt: mintiso(inst, 5),
         createdBy: "agent:compliance_vision",
         suggestedAction: "Request additional evidence or schedule an inspection.",
@@ -720,7 +759,7 @@ function assembleFindings(ctx: {
         confidence: 0.95,
         summary: `Text layer contains an instruction addressed to an AI model. No tool acted on it.`,
         detail: `Doc reader treats document text as untrusted data. Matched: "${hit.matched}".`,
-        evidence: [{ factId: appFacts[0]?.id ?? "none", page: hit.page, bbox: [64, 500, 720, 545], cropKey: `crops/${hit.documentId}_hidden.png`, role: "signal" }],
+        evidence: [{ kind: "fact_ref", factId: appFacts[0]?.id ?? "fx_missing", page: hit.page, bbox: [64, 500, 720, 545], cropKey: `crops/${hit.documentId}_hidden.png`, role: "signal" }],
         createdAt: mintiso(inst, 2.5),
         createdBy: "agent:doc_reader",
       });
@@ -731,6 +770,24 @@ function assembleFindings(ctx: {
 
   /* ---- Critic pass (§04): drop unresolved evidence, wording guard ---- */
   const knownRuleIds = new Set(rules.map((r) => r.id));
+  /* Absence-receipt context: slot → expected doc types, plus what each
+   * application actually filed per slot so the Critic can verify the receipt
+   * (the required item really is missing). */
+  const checklistSlots = new Map<string, string[]>();
+  for (const item of CHECKLIST) {
+    for (const dt of item.key === "category_form" ? Object.values(CATEGORY_FORM_TYPE) : [item.docType]) {
+      const list = checklistSlots.get(item.expectedSlot) ?? [];
+      if (!list.includes(dt)) list.push(dt);
+      checklistSlots.set(item.expectedSlot, list);
+    }
+  }
+  const documentsByAppSlot = new Map<string, string[]>();
+  for (const d of documents) {
+    const k = `${d.applicationId}|${d.checklistSlot ?? ""}`;
+    const list = documentsByAppSlot.get(k) ?? [];
+    if (!list.includes(d.docType)) list.push(d.docType);
+    documentsByAppSlot.set(k, list);
+  }
   for (const pseudo of ["FORENSICS.PDF_STRUCTURE", "FORENSICS.STAMP_REUSE", "COMPLIANCE.PHOTO_REUSE", "DOCREADER.INJECTION", "INTAKE.SLOT", "XCHECK.CONFLICT"]) {
     knownRuleIds.add(pseudo);
   }
@@ -738,7 +795,7 @@ function assembleFindings(ctx: {
   const dropBadEvidence = (list: Finding[]): Finding[] => {
     const run = E.critiqueAll(
       list,
-      { facts: factsMap, knownRuleIds },
+      { facts: factsMap, knownRuleIds, checklist: { version: CHECKLIST_VERSION, slots: checklistSlots }, documentsByAppSlot },
       {
         onDroppedToHuman: (f, reason) => {
           // Critic sends work back once, then routes to a human. Recorded for the

@@ -5,6 +5,10 @@
  */
 import type { DocDraft, FieldSpec, Line, PageDraft } from "./pagetemplate.js";
 import { L, pageHeader, scanParams } from "./pagetemplate.js";
+/* Roster entries render from the shared fixture faculty list so the same
+   person's row appears on each institution's roster the ghost-faculty rule
+   compares. Import only for type-safe reference; values are fixture personnel. */
+import { FACULTY } from "./institutions.js";
 
 export type Values = {
   instName: string;
@@ -179,11 +183,29 @@ export function buildFacultyRoster(v: Values, applicationId: string): DocDraft {
   const pages: PageDraft[] = [];
   const countDisplay = String(v.facultyCountRoster);
   const s = scan(applicationId + "faculty_roster", v.poorScan);
+  // Render one roster row per real (fixture) faculty member employed by this
+  // institution; the ghost-faculty rule anchors on these entry facts.
+  const entries = FACULTY.filter((emp) => emp.institutions.some((li) => li.id === applicationId));
+  let entryY = 338;
+  const entryLines: Line[] = entries.map((emp, i) => {
+    const link = emp.institutions.find((li) => li.id === applicationId);
+    const thru = link?.to ? ` (“thru ${link.to}”)` : " (open “thru)”";
+    const line = L(96, entryY + i * 36, `${i + 1}. ${emp.name} — ${emp.facultyId} — from ${link?.from ?? "2026-04-01"}${thru}`, { size: 20 });
+    fields.push({
+      key: `faculty.roster_entry`, // one row per employment entry on this roster
+      display: emp.facultyId,
+      line,
+      confidence: v.rosterBlur ? 0.62 : 0.97,
+      asOf: "2026-07-01",
+    });
+    return line;
+  });
   const lines: Line[] = [
     ...pageHeader("FACULTY ROSTER", `Session ${v.sessionId} (fixture personnel names)`, v.instName),
     ...row(230, "Total faculty on roster", countDisplay),
     ...row(266, "Roster as-of date", "2026-07-01"),
     ...row(302, "Sample entry", "1. faculty (synthetic) — Asst. Professor"),
+    ...entryLines,
   ];
   const countLine = lines.find((l) => l.text === countDisplay)!;
   fields.push({
