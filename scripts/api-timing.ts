@@ -1,4 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const port = 3100;
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -16,10 +20,21 @@ let serverProcess: ReturnType<typeof spawn> | null = null;
 
 if (!(await isServerUp())) {
   console.log('Starting production server for API timing check...');
-  serverProcess = spawn(pnpm, ['start'], { stdio: 'ignore', shell: process.platform === 'win32' });
-  for (let i = 0; i < 40; i++) {
+  const logFile = path.join(os.tmpdir(), 'next-timing.log');
+  const logStream = fs.openSync(logFile, 'w');
+  serverProcess = spawn('node', ['node_modules/next/dist/bin/next', 'start', '-p', String(port)], {
+    stdio: ['ignore', logStream, logStream],
+    cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'apps', 'web'),
+  });
+  for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 250));
     if (await isServerUp()) break;
+  }
+  if (!(await isServerUp())) {
+    console.error(`--- server log (${logFile}) ---`);
+    try {
+      console.error(fs.readFileSync(logFile, 'utf8').slice(0, 2000));
+    } catch {}
   }
 }
 
@@ -30,17 +45,31 @@ if (!(await isServerUp())) {
 
 const endpoints = [
   '/api/health',
-  '/api/cases',
-  '/api/cases/APP-001',
-  '/api/cases/APP-001/documents',
-  '/api/cases/APP-001/mismatches',
-  '/api/cases/APP-001/checks',
-  '/api/cases/APP-001/connections',
-  '/api/cases/APP-001/report',
   '/api/rules',
   '/api/ledger',
   '/api/metrics',
 ];
+
+// Case endpoints are exercised against a real id from the dataset.
+const casesRes = await fetch(`http://127.0.0.1:${port}/api/cases`);
+const casesPayload = (await casesRes.json()) as { items?: Array<{ id: string }> };
+const caseId = casesPayload.items?.[0]?.id;
+if (caseId) {
+  for (const ep of [
+    `/api/cases`,
+    `/api/cases/${caseId}`,
+    `/api/cases/${caseId}/documents`,
+    `/api/cases/${caseId}/mismatches`,
+    `/api/cases/${caseId}/checks`,
+    `/api/cases/${caseId}/connections`,
+    `/api/cases/${caseId}/report`,
+  ]) {
+    endpoints.push(ep);
+  }
+} else {
+  console.error('No cases returned by /api/cases; case endpoints skipped (FAIL).');
+  process.exit(1);
+}
 
 const BUDGET_P95_MS = 50;
 let failed = false;

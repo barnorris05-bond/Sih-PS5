@@ -13,6 +13,10 @@ export default defineConfig({
   },
   webServer: {
     command: 'node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3100',
+    env: {
+      ...process.env,
+      NEXT_DEV_DIST: '.next-dev',
+    },
     url: 'http://localhost:3100/demo',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

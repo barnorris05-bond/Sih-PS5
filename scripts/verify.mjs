@@ -42,6 +42,11 @@ const steps = [
     cwd: 'apps/web',
   },
   {
+    name: 'API timing budget',
+    cmd: 'node',
+    args: ['scripts/api-timing.ts'],
+  },
+  {
     name: 'e2e tests',
     cmd: 'node',
     args: ['node_modules/@playwright/test/cli.js', 'test'],

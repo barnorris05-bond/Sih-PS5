@@ -1,6 +1,7 @@
 # EvidenceGraph prototype workspace
 node_modules/
 .next/
+.next-dev/
 .turbo/
 dist/
 *.tsbuildinfo

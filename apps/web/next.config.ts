@@ -18,6 +18,9 @@ const cspHeader = `
   .trim();
 
 const nextConfig: NextConfig = {
+  // `next dev` (e.g. from the Playwright webServer) writes to its own dist dir
+  // so it never clobbers a production build sitting in `.next`.
+  distDir: process.env.NEXT_DEV_DIST ? `${process.env.NEXT_DEV_DIST}` : '.next',
   transpilePackages: ['@evidencegraph/domain', '@evidencegraph/engine', '@evidencegraph/fixtures'],
   serverExternalPackages: ['yaml'],
   outputFileTracingRoot: path.join(__dirname, '..', '..'),
