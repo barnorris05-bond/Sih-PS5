@@ -20,10 +20,11 @@ export function LedgerTable() {
   // tracks which row seqs are visually "cascading" after a tamper
   const [cascadeSeqs, setCascadeSeqs] = useState<Set<number>>(new Set());
 
-  const { data, isLoading } = useQuery<LedgerResponse>({
+  const { data, isLoading, error, refetch } = useQuery<LedgerResponse>({
     queryKey: ['ledger'],
     queryFn: async () => {
       const res = await fetch('/api/ledger', { headers: { 'x-eg-role': role } });
+      if (!res.ok) throw new Error('Failed to load ledger');
       return res.json() as Promise<LedgerResponse>;
     },
   });
@@ -70,6 +71,7 @@ export function LedgerTable() {
   });
 
   if (isLoading) return <div style={{ padding: 24, display: 'flex', gap: 8, color: 'var(--color-text-muted)' }}><Spinner />Loading ledger…</div>;
+  if (error) return <div style={{ padding: 24, color: 'var(--color-alert)', fontSize: 13 }}>Could not load the ledger. <button onClick={() => refetch()} style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', cursor: 'pointer' }}>Retry</button></div>;
 
   const { integrity, digest } = data ?? {};
 
@@ -77,6 +79,9 @@ export function LedgerTable() {
 
   return (
     <div style={{ padding: 24 }}>
+      <p style={{ margin: '0 0 16px', fontSize: 12, color: 'var(--color-text-faint)', maxWidth: 720 }}>
+        Every action the system records is written here as a row whose hash includes the previous row&apos;s hash, so records cannot be rewritten later without the chain visibly breaking. Use the demo Tamper action on any row to see the break and how it cascades.
+      </p>
       {/* Chain status banner */}
       <div style={{ marginBottom: 16, padding: '10px 16px', background: `color-mix(in srgb, ${chainOk ? 'var(--color-verified)' : 'var(--color-alert)'} 10%, transparent)`, border: `1px solid ${chainOk ? 'var(--color-verified)' : 'var(--color-alert)'}`, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: chainOk ? 'var(--color-verified)' : 'var(--color-alert)' }}>
