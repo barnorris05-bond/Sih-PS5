@@ -12,7 +12,7 @@ interface SelfCheckListProps {
 export function SelfCheckList({ appId }: SelfCheckListProps) {
   const { role } = useRoleStore();
 
-  const { data, isLoading } = useQuery<{ findings: Finding[]; institution: string; openCount: number }>({
+  const { data, isLoading, error, refetch } = useQuery<{ findings: Finding[]; institution: string; openCount: number }>({
     queryKey: ['self-check', appId],
     queryFn: async () => {
       // Self-check endpoint returns only fix-list items (no forensic signals,
@@ -32,6 +32,7 @@ export function SelfCheckList({ appId }: SelfCheckListProps) {
   }
 
   if (isLoading) return <div style={{ padding: 16, display: 'flex', gap: 8, color: 'var(--color-text-muted)' }}><Spinner />Loading fix list…</div>;
+  if (error) return <div style={{ padding: 24, color: 'var(--color-alert)', fontSize: 13 }}>Could not load your list. <button onClick={() => refetch()} style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', cursor: 'pointer' }}>Retry</button></div>;
 
   const findings = (data?.findings ?? []).filter((f) => f.findingClass !== 'anomaly_signal' && f.status === 'open');
 

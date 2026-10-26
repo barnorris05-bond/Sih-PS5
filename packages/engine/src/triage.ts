@@ -56,7 +56,7 @@ export function computeTriage(
 
   const ordered = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([label, n]) => {
     const first = label.charAt(0).toLowerCase();
-    return `${n} ${label.replace(/^./, first)}${n > 1 ? "s" : ""}`;
+    return `${n} ${label.replace(/^./, first)}${n > 1 ? pluralise(label) : ""}`;
   });
 
   // Top 3 reasons get shown in the queue.
@@ -86,4 +86,13 @@ export function shortReason(f: Finding, signalStrengths: Record<string, SignalSt
 
 export function classLabel(c: string): string {
   return c.replace(/_/g, " ");
+}
+
+/** Plural forms for label classes shown in the queue; default adds an s. */
+const PLURAL_FORMS: Record<string, string> = {
+  "potential discrepancy": "potential discrepancies",
+};
+
+function pluralise(label: string): string {
+  return PLURAL_FORMS[label] ?? "s";
 }

@@ -9,7 +9,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 export function MetricsBoard() {
   const { role } = useRoleStore();
 
-  const { data: metrics, isLoading } = useQuery<MetricBoard>({
+  const { data: metrics, isLoading, error, refetch } = useQuery<MetricBoard>({
     queryKey: ['metrics'],
     queryFn: async () => {
       const res = await fetch('/api/metrics', { headers: { 'x-eg-role': role } });
@@ -18,6 +18,7 @@ export function MetricsBoard() {
   });
 
   if (isLoading) return <div style={{ padding: 24, display: 'flex', gap: 8, color: 'var(--color-text-muted)' }}><Spinner />Loading metrics…</div>;
+  if (error) return <div style={{ padding: 24, color: 'var(--color-alert)', fontSize: 13 }}>Could not load metrics. <button onClick={() => refetch()} style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', cursor: 'pointer' }}>Retry</button></div>;
   if (!metrics) return null;
 
   return (
@@ -28,14 +29,14 @@ export function MetricsBoard() {
 
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginBottom: 24 }}>
-        <StatCard label="Discrepancy Precision" value={fmtPercent(metrics.discrepancyPrecision)} color="var(--color-accent)" />
-        <StatCard label="Discrepancy Recall" value={fmtPercent(metrics.discrepancyRecall)} color="var(--color-accent)" />
-        <StatCard label="False Positive Rate" value={fmtPercent(metrics.falsePositiveRate)} color={metrics.falsePositiveRate === 0 ? 'var(--color-verified)' : 'var(--color-alert)'} note="High-severity on clean controls" />
-        <StatCard label="Verification Coverage" value={fmtPercent(metrics.verificationCoverage)} color="var(--color-accent)" />
-        <StatCard label="Explainability Coverage" value={fmtPercent(metrics.explainabilityCoverage)} color="var(--color-ok)" />
-        <StatCard label="Avg Time / Application" value={`${metrics.avgTimePerApplicationMinutes.toFixed(1)}m`} color="var(--color-text-muted)" />
-        <StatCard label="Alert Latency (median)" value={`${metrics.alertLatencySeconds.median.toFixed(1)}s`} color="var(--color-text-muted)" />
-        <StatCard label="Alert Latency (p90)" value={`${metrics.alertLatencySeconds.p90.toFixed(1)}s`} color="var(--color-text-muted)" />
+        <StatCard label="Discrepancy Precision" value={fmtPercent(metrics.discrepancyPrecision)} color="var(--color-accent)" note="How many flagged issues were real" />
+        <StatCard label="Discrepancy Recall" value={fmtPercent(metrics.discrepancyRecall)} color="var(--color-accent)" note="How many planted issues were found" />
+        <StatCard label="False Positive Rate" value={fmtPercent(metrics.falsePositiveRate)} color={metrics.falsePositiveRate === 0 ? 'var(--color-verified)' : 'var(--color-alert)'} note="High-severity flags on clean controls" />
+        <StatCard label="Verification Coverage" value={fmtPercent(metrics.verificationCoverage)} color="var(--color-accent)" note="Share of fields checked with an issuer" />
+        <StatCard label="Explainability Coverage" value={fmtPercent(metrics.explainabilityCoverage)} color="var(--color-ok)" note="Findings with resolvable evidence" />
+        <StatCard label="Avg Time / Application" value={`${metrics.avgTimePerApplicationMinutes.toFixed(1)}m`} color="var(--color-text-muted)" note="Officer review time, simulated" />
+        <StatCard label="Alert Latency (median)" value={`${metrics.alertLatencySeconds.median.toFixed(1)}s`} color="var(--color-text-muted)" note="Ingest to queue appearance" />
+        <StatCard label="Alert Latency (p90)" value={`${metrics.alertLatencySeconds.p90.toFixed(1)}s`} color="var(--color-text-muted)" note="Ingest to queue appearance, slowest 10%" />
       </div>
 
       {/* Field accuracy chart */}
@@ -52,7 +53,7 @@ export function MetricsBoard() {
               />
               <Bar dataKey="accuracy" radius={[3, 3, 0, 0]}>
                 {metrics.fieldAccuracyPerDocType.map((entry, i) => (
-                  <Cell key={i} fill={entry.accuracy > 0.9 ? '#3ddc97' : entry.accuracy > 0.7 ? '#5bc0eb' : '#f2555a'} />
+                  <Cell key={i} fill={entry.accuracy > 0.9 ? 'var(--color-verified)' : entry.accuracy > 0.7 ? 'var(--color-accent)' : 'var(--color-mismatch)'} />
                 ))}
               </Bar>
             </BarChart>

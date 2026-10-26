@@ -11,15 +11,17 @@ export function RulesAdmin() {
   const { role } = useRoleStore();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const { data, isLoading } = useQuery<{ rules: Rule[]; ruleCount: number }>({
+  const { data, isLoading, error, refetch } = useQuery<{ rules: Rule[]; ruleCount: number }>({
     queryKey: ['rules'],
     queryFn: async () => {
       const res = await fetch('/api/rules', { headers: { 'x-eg-role': role } });
+      if (!res.ok) throw new Error('Failed to load rules');
       return res.json() as Promise<{ rules: Rule[]; ruleCount: number }>;
     },
   });
 
   if (isLoading) return <div style={{ padding: 24, display: 'flex', gap: 8, color: 'var(--color-text-muted)' }}><Spinner />Loading rules…</div>;
+  if (error) return <div style={{ padding: 24, color: 'var(--color-alert)', fontSize: 13 }}>Could not load rules. <button onClick={() => refetch()} style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 4, color: 'var(--color-text)', cursor: 'pointer' }}>Retry</button></div>;
 
   const rules = data?.rules ?? [];
 
@@ -27,6 +29,9 @@ export function RulesAdmin() {
     <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 16, fontSize: 13, color: 'var(--color-text-muted)' }}>
         {rules.length} rules in pack · {rules.filter((r) => !r.clauseConfirmed).length} with unconfirmed clause references
+        <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: 'var(--color-text-faint)' }}>
+          Each rule runs automatically against every application pack. When a rule fails, the system opens a finding for officer review — it never blocks one by itself. Click a rule to see its condition and built-in tests.
+        </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {rules.map((rule) => {
