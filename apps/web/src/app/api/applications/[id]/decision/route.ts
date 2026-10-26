@@ -1,12 +1,15 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { type NextRequest } from 'next/server';
 import { applyDecision } from '@/.data/store';
 import { z } from 'zod';
+import { apiError, apiSuccess } from '@/lib/api-response';
+
+export const dynamic = 'force-dynamic';
 
 const DecisionBody = z.object({
   findingId: z.string().min(1),
   action: z.enum(['accept', 'dismiss', 'escalate']),
   reason: z.string().min(1, 'Reason is required'),
-});
+}).strict();
 
 export async function POST(
   request: NextRequest,
@@ -16,32 +19,33 @@ export async function POST(
   const role = request.headers.get('x-eg-role') ?? 'scrutiny_officer';
 
   if (role === 'applicant') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return apiError('FORBIDDEN_ROLE', 'Applicants cannot record finding decisions.', 403);
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return apiError('VALIDATION_FAILED', 'Invalid JSON payload', 400);
   }
 
   const parsed = DecisionBody.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.message }, { status: 400 });
+    return apiError('VALIDATION_FAILED', 'Invalid request body', 400, parsed.error.format());
   }
 
   const { findingId, action, reason } = parsed.data;
 
   // Role check for escalate
   if (action === 'escalate' && role !== 'senior_reviewer') {
-    return NextResponse.json({ error: 'Only senior_reviewer can escalate' }, { status: 403 });
+    return apiError('FORBIDDEN_ROLE', 'Only senior_reviewer can escalate findings', 403);
   }
 
   try {
     const ledgerRow = applyDecision(id, findingId, action, reason, role);
-    return NextResponse.json({ ledgerRow });
+    return apiSuccess({ ledgerRow }, { status: 200 });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 404 });
+    const message = e instanceof Error ? e.message : String(e);
+    return apiError('RESOURCE_NOT_FOUND', message, 404);
   }
 }

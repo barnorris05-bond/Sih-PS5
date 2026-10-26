@@ -7,10 +7,11 @@ export default defineConfig({
       "@evidencegraph/domain": path.resolve(__dirname, "packages/domain/src/index.ts"),
       "@evidencegraph/engine": path.resolve(__dirname, "packages/engine/src/index.ts"),
       "@evidencegraph/fixtures": path.resolve(__dirname, "packages/fixtures/src/index.ts"),
+      "@": path.resolve(__dirname, "apps/web/src"),
     },
   },
   test: {
-    include: ["packages/*/src/**/*.test.ts"],
+    include: ["packages/*/src/**/*.test.ts", "apps/web/tests/**/*.test.ts"],
     environment: "node",
     globals: false,
   },

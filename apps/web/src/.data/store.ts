@@ -1,5 +1,6 @@
 /**
- * Singleton in-memory dataset store.
+ * Singleton in-memory dataset store with atomic persistence, versioned caching,
+ * and Server-Sent Events broadcasting.
  * Server-side only — never import from client components.
  */
 import path from 'node:path';
@@ -25,7 +26,35 @@ import type {
 } from '@evidencegraph/domain';
 import type { ConflictRow } from '@evidencegraph/engine';
 
-// ---- Persistence ----
+// ---- Typed Store Events (for Server-Sent Events) ----
+
+export type StoreEvent =
+  | { type: 'finding.updated'; payload: { appId: string; findingId: string; status: string; actor: string } }
+  | { type: 'fact.corrected'; payload: { appId: string; factId: string; replacementFactId: string; correctedValue: string | number } }
+  | { type: 'decision.recorded'; payload: { appId: string; findingId: string; action: string; actor: string } }
+  | { type: 'ledger.appended'; payload: { seq: number; action: string; at: string } }
+  | { type: 'verification.updated'; payload: { appId: string; attemptId: string; status: string } }
+  | { type: 'dataset.reset'; payload: { at: string } };
+
+type Listener = (event: StoreEvent) => void;
+const _listeners = new Set<Listener>();
+
+export function subscribeToStoreEvents(listener: Listener): () => void {
+  _listeners.add(listener);
+  return () => {
+    _listeners.delete(listener);
+  };
+}
+
+export function broadcastStoreEvent(event: StoreEvent): void {
+  for (const listener of _listeners) {
+    try {
+      listener(event);
+    } catch {}
+  }
+}
+
+// ---- Persistence with Atomic Writes & Mutex Queue ----
 
 interface StorePatch {
   decisions: Array<{
@@ -62,30 +91,54 @@ function loadPatch(): StorePatch {
   return { decisions: [], corrections: [], tamperedRows: [], letterReleases: [] };
 }
 
+let _writeQueue = Promise.resolve();
+
 function savePatch(p: StorePatch): void {
-  try {
-    const fp = patchFilePath();
-    const dir = path.dirname(fp);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(fp, JSON.stringify(p, null, 2), 'utf8');
-  } catch {
-    // non-fatal in demo
-  }
+  _writeQueue = _writeQueue.then(async () => {
+    try {
+      const fp = patchFilePath();
+      const dir = path.dirname(fp);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const tmpPath = `${fp}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(p, null, 2), 'utf8');
+      fs.renameSync(tmpPath, fp);
+    } catch {
+      // non-fatal in demo
+    }
+  });
 }
 
-// ---- Singleton ----
+// ---- Singleton & Versioned Derived-Data Cache ----
 
 let _ds: Dataset | null = null;
 let _ledger: AuditRow[] | null = null;
 let _patch: StorePatch | null = null;
+let _datasetVersion = 1;
+let _cachedMetrics: { version: number; data: MetricBoard } | null = null;
+let _cachedSummaries: { version: number; data: ApplicationSummary[] } | null = null;
+
+export function getDatasetVersion(): number {
+  return _datasetVersion;
+}
 
 function getRulesDir(): string {
-  // Try env var first
   if (process.env['RULES_DIR']) {
-    return path.resolve(process.cwd(), process.env['RULES_DIR']);
+    const custom = path.resolve(process.cwd(), process.env['RULES_DIR']);
+    if (fs.existsSync(custom)) return custom;
   }
-  // Next.js: cwd() = apps/web during build/dev; monorepo root is ../../
-  return path.resolve(process.cwd(), '..', '..', 'rules', 'aph-2024-27');
+  // Candidate 1: root is cwd
+  const rootCand = path.resolve(process.cwd(), 'rules', 'aph-2024-27');
+  if (fs.existsSync(rootCand)) return rootCand;
+
+  // Candidate 2: cwd is apps/web
+  const monorepoCand = path.resolve(process.cwd(), '..', '..', 'rules', 'aph-2024-27');
+  if (fs.existsSync(monorepoCand)) return monorepoCand;
+
+  // Candidate 3: relative to this file
+  const relativeCand = path.resolve(__dirname, '..', '..', '..', 'rules', 'aph-2024-27');
+  if (fs.existsSync(relativeCand)) return relativeCand;
+
+  return rootCand;
 }
 
 function getDatasetInternal(): Dataset {
@@ -150,11 +203,16 @@ export function getDataset(): Dataset {
 }
 
 export function getApplicationSummaries(): ApplicationSummary[] {
-  return getDatasetInternal().summaries;
+  if (_cachedSummaries && _cachedSummaries.version === _datasetVersion) {
+    return _cachedSummaries.data;
+  }
+  const summaries = getDatasetInternal().summaries;
+  _cachedSummaries = { version: _datasetVersion, data: summaries };
+  return summaries;
 }
 
 export function getSummary(id: string): ApplicationSummary | undefined {
-  return getDatasetInternal().summaries.find((s) => s.id === id);
+  return getApplicationSummaries().find((s) => s.id === id);
 }
 
 export function getInstitution(id: string): Institution | undefined {
@@ -188,7 +246,6 @@ export function getGraph(appId?: string): GraphSubgraph {
   if (!appId) {
     return { nodes: ds.graphNodes, edges: ds.graphEdges };
   }
-  // Return neighbourhood: institution node + 2-hop neighbours
   const institutionNode = ds.graphNodes.find((n) => n.id === appId);
   if (!institutionNode) return { nodes: [], edges: [] };
 
@@ -198,7 +255,6 @@ export function getGraph(appId?: string): GraphSubgraph {
     neighborIds.add(e.source);
     neighborIds.add(e.target);
   }
-  // second hop
   const hop2Edges = ds.graphEdges.filter(
     (e) => (neighborIds.has(e.source) || neighborIds.has(e.target)) && !directEdges.includes(e),
   );
@@ -233,8 +289,11 @@ export function getSignalStrengths(): Record<string, string> {
 }
 
 export function getMetrics(): MetricBoard {
+  if (_cachedMetrics && _cachedMetrics.version === _datasetVersion) {
+    return _cachedMetrics.data;
+  }
   const ds = getDatasetInternal();
-  return computeMetrics({
+  const metrics = computeMetrics({
     institutions: ds.institutions,
     documents: ds.documents,
     facts: ds.facts,
@@ -242,6 +301,98 @@ export function getMetrics(): MetricBoard {
     verifications: ds.verifications,
     runs: ds.runs,
   });
+  _cachedMetrics = { version: _datasetVersion, data: metrics };
+  return metrics;
+}
+
+// ---- Case Workspace Section Aggregations ----
+
+export interface CaseHeader {
+  id: string;
+  institutionId: string;
+  institutionName: string;
+  applicationType: string;
+  priorityScore: number;
+  priorityRank: number;
+  status: string;
+  deadlineHoursLeft: number;
+  reasons: string[];
+  counts: {
+    documents: number;
+    mismatches: number;
+    checks: number;
+    connections: number;
+  };
+  findingsSummary: {
+    total: number;
+    accepted: number;
+    dismissed: number;
+    pending: number;
+  };
+  nextStep: {
+    label: string;
+    section: 'summary' | 'documents' | 'mismatches' | 'checks' | 'connections' | 'report';
+  };
+}
+
+export function getCaseHeader(id: string): CaseHeader | undefined {
+  const summary = getSummary(id);
+  if (!summary) return undefined;
+
+  const docs = getDocuments(id);
+  const mismatches = getConflicts(id);
+  const checks = getVerifications(id);
+  const connections = getGraph(id);
+  const findings = getFindings(id);
+
+  const accepted = findings.filter((f) => (f as Record<string, unknown>)['status'] === 'accepted').length;
+  const dismissed = findings.filter((f) => (f as Record<string, unknown>)['status'] === 'dismissed').length;
+  const pending = findings.length - accepted - dismissed;
+
+  let nextStep: CaseHeader['nextStep'] = {
+    label: 'Prepare decision & notice',
+    section: 'report',
+  };
+
+  if (pending > 0) {
+    if (mismatches.length > 0) {
+      nextStep = { label: `Review ${mismatches.length} mismatch${mismatches.length > 1 ? 'es' : ''}`, section: 'mismatches' };
+    } else if (docs.length > 0) {
+      nextStep = { label: 'Review required documents', section: 'documents' };
+    }
+  } else if (checks.some((c) => c.status === 'source_unavailable' || c.status === 'mismatch')) {
+    nextStep = { label: 'Review official checks', section: 'checks' };
+  }
+
+  // Calculate rank based on triageScore (higher score = higher rank/priority)
+  const allSummaries = getApplicationSummaries();
+  const sorted = [...allSummaries].sort((a, b) => b.triageScore - a.triageScore);
+  const priorityRank = sorted.findIndex((s) => s.id === id) + 1;
+
+  return {
+    id: summary.id,
+    institutionId: summary.institution.id,
+    institutionName: summary.institution.name,
+    applicationType: summary.institution.category,
+    priorityScore: summary.triageScore,
+    priorityRank,
+    status: summary.status,
+    deadlineHoursLeft: summary.slaHoursLeft,
+    reasons: summary.triageReasons,
+    counts: {
+      documents: docs.length,
+      mismatches: mismatches.length,
+      checks: checks.length,
+      connections: connections.nodes.length,
+    },
+    findingsSummary: {
+      total: findings.length,
+      accepted,
+      dismissed,
+      pending,
+    },
+    nextStep,
+  };
 }
 
 // ---- Mutations ----
@@ -277,6 +428,23 @@ export function applyDecision(
   savePatch(patch);
   _patch = patch;
 
+  _datasetVersion++;
+  _cachedMetrics = null;
+  _cachedSummaries = null;
+
+  broadcastStoreEvent({
+    type: 'decision.recorded',
+    payload: { appId, findingId, action, actor },
+  });
+  broadcastStoreEvent({
+    type: 'finding.updated',
+    payload: { appId, findingId, status: newStatus, actor },
+  });
+  broadcastStoreEvent({
+    type: 'ledger.appended',
+    payload: { seq: row.seq, action: row.action, at: row.at },
+  });
+
   return row;
 }
 
@@ -296,7 +464,7 @@ export function applyCorrection(
   Object.assign(fact, original);
   ds.facts.push(replacement);
 
-  appendRow(_ledger!, {
+  const row = appendRow(_ledger!, {
     at,
     actor: officer,
     action: 'fact.corrected',
@@ -310,6 +478,19 @@ export function applyCorrection(
   savePatch(patch);
   _patch = patch;
 
+  _datasetVersion++;
+  _cachedMetrics = null;
+  _cachedSummaries = null;
+
+  broadcastStoreEvent({
+    type: 'fact.corrected',
+    payload: { appId, factId, replacementFactId: replacement.id, correctedValue },
+  });
+  broadcastStoreEvent({
+    type: 'ledger.appended',
+    payload: { seq: row.seq, action: row.action, at: row.at },
+  });
+
   return replacement;
 }
 
@@ -321,6 +502,14 @@ export function tamperLedgerRow(seq: number, patch: Record<string, unknown>): Au
   p.tamperedRows.push({ seq, patch });
   savePatch(p);
   _patch = p;
+
+  _datasetVersion++;
+  _cachedMetrics = null;
+
+  broadcastStoreEvent({
+    type: 'ledger.appended',
+    payload: { seq: row.seq, action: 'ledger.tampered', at: row.at },
+  });
 
   return row;
 }
@@ -334,7 +523,7 @@ export function releaseLetter(appId: string, releasedBy: string): LetterDraft {
   (letter as Record<string, unknown>)['releasedBy'] = releasedBy;
   (letter as Record<string, unknown>)['releasedAt'] = releasedAt;
 
-  appendRow(_ledger!, {
+  const row = appendRow(_ledger!, {
     at: releasedAt,
     actor: releasedBy,
     action: 'letter.released',
@@ -346,6 +535,13 @@ export function releaseLetter(appId: string, releasedBy: string): LetterDraft {
   const p = loadPatch();
   p.letterReleases.push({ appId, releasedBy, releasedAt });
   savePatch(p);
+
+  _datasetVersion++;
+
+  broadcastStoreEvent({
+    type: 'ledger.appended',
+    payload: { seq: row.seq, action: row.action, at: row.at },
+  });
 
   return letter;
 }
@@ -360,6 +556,14 @@ export function resetToSeed(): void {
   } catch {
     // non-fatal
   }
+  _datasetVersion++;
+  _cachedMetrics = null;
+  _cachedSummaries = null;
+
+  broadcastStoreEvent({
+    type: 'dataset.reset',
+    payload: { at: new Date().toISOString() },
+  });
 }
 
 export function getVerifyResult(): ReturnType<typeof verifyChain> {

@@ -1,5 +1,8 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { type NextRequest } from 'next/server';
 import { getSummary, getDocuments, getFacts, getFindings, getVerifications, getConflicts, getLetter } from '@/.data/store';
+import { apiError, apiSuccess } from '@/lib/api-response';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: NextRequest,
@@ -10,14 +13,14 @@ export async function GET(
 
   const summary = getSummary(id);
   if (!summary) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return apiError('RESOURCE_NOT_FOUND', `Application ${id} not found`, 404);
   }
 
-  // Applicant can only see if they pin matches
+  // Applicant pin check
   if (role === 'applicant') {
     const pin = request.headers.get('x-eg-pin') ?? '';
     if (summary.institution.applicantRolePin !== pin) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      return apiError('FORBIDDEN_ROLE', 'Applicant PIN mismatch or missing', 403);
     }
   }
 
@@ -32,14 +35,17 @@ export async function GET(
   const conflicts = getConflicts(id);
   const letter = getLetter(id) ?? null;
 
-  return NextResponse.json({
-    summary,
-    institution: summary.institution,
-    documents,
-    facts,
-    findings,
-    verifications,
-    conflicts,
-    letter,
-  });
+  return apiSuccess(
+    {
+      summary,
+      institution: summary.institution,
+      documents,
+      facts,
+      findings,
+      verifications,
+      conflicts,
+      letter,
+    },
+    { request },
+  );
 }

@@ -1,10 +1,13 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { type NextRequest } from 'next/server';
 import { applyCorrection } from '@/.data/store';
 import { z } from 'zod';
+import { apiError, apiSuccess } from '@/lib/api-response';
+
+export const dynamic = 'force-dynamic';
 
 const CorrectBody = z.object({
   correctedValue: z.union([z.string(), z.number()]),
-});
+}).strict();
 
 export async function POST(
   request: NextRequest,
@@ -13,25 +16,26 @@ export async function POST(
   const { id, factId } = await params;
   const role = request.headers.get('x-eg-role') ?? 'scrutiny_officer';
   if (role === 'applicant') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return apiError('FORBIDDEN_ROLE', 'Applicants cannot perform confidence gate corrections.', 403);
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return apiError('VALIDATION_FAILED', 'Invalid JSON payload', 400);
   }
 
   const parsed = CorrectBody.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.message }, { status: 400 });
+    return apiError('VALIDATION_FAILED', 'Invalid request body', 400, parsed.error.format());
   }
 
   try {
     const fact = applyCorrection(id, factId, parsed.data.correctedValue, role);
-    return NextResponse.json(fact);
+    return apiSuccess(fact);
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 404 });
+    const message = e instanceof Error ? e.message : String(e);
+    return apiError('RESOURCE_NOT_FOUND', message, 404);
   }
 }

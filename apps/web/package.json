@@ -50,6 +50,7 @@
     "dotenv": "^16.4.5",
     "eslint": "^9.15.0",
     "eslint-config-next": "^15.1.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
     "jsdom": "^25.0.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^4.1.14",
