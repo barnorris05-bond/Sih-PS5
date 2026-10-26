@@ -39,7 +39,7 @@ export function RulesAdmin() {
                 aria-expanded={isExpanded}
               >
                 {isExpanded ? <ChevronDown size={13} style={{ color: 'var(--color-text-muted)' }} /> : <ChevronRight size={13} style={{ color: 'var(--color-text-muted)' }} />}
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--color-accent-lime)', width: 200, flexShrink: 0 }}>{rule.id}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--color-ok)', width: 200, flexShrink: 0 }}>{rule.id}</span>
                 <span style={{ fontSize: 11, color: 'var(--color-text-muted)', width: 80 }}>v{rule.version}</span>
                 <span style={{ fontSize: 11, color: 'var(--color-text-faint)', flex: 1 }}>{rule.aphRef}</span>
                 <FindingChip findingClass={rule.onFail.class} />
@@ -51,7 +51,7 @@ export function RulesAdmin() {
                 <div style={{ padding: '12px 16px', borderTop: '1px solid var(--color-border)' }}>
                   <div style={{ marginBottom: 10 }}>
                     <span style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 4, display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Assert</span>
-                    <code style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--color-accent-lime)', background: 'var(--color-canvas)', padding: '6px 10px', borderRadius: 4, display: 'block' }}>{rule.assert}</code>
+                    <code style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--color-ok)', background: 'var(--color-canvas)', padding: '6px 10px', borderRadius: 4, display: 'block' }}>{rule.assert}</code>
                   </div>
                   <div>
                     <span style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 4, display: 'block', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Tests ({rule.tests.length})</span>

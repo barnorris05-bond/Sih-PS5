@@ -187,7 +187,7 @@ function CodeBlock({ label, data }: { label: string; data: Record<string, unknow
   return (
     <div>
       <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 4, textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.06em' }}>{label}</div>
-      <pre style={{ margin: 0, padding: 10, background: 'var(--color-canvas)', borderRadius: 6, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--color-accent-lime)', overflow: 'auto', maxHeight: 200 }}>
+      <pre style={{ margin: 0, padding: 10, background: 'var(--color-code-bg)', borderRadius: 6, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--color-code-text)', overflow: 'auto', maxHeight: 200 }}>
         {JSON.stringify(data, null, 2)}
       </pre>
     </div>

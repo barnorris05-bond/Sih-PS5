@@ -26,7 +26,7 @@ export function CypherDrawer() {
         <Dialog.Overlay style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:9998 }} />
         <Dialog.Content style={{ position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',background:'var(--color-surface)',border:'1px solid var(--color-border)',borderRadius:10,padding:0,width:640,zIndex:9999,overflow:'hidden' }}>
           <div style={{ display:'flex',alignItems:'center',gap:10,padding:'12px 16px',borderBottom:'1px solid var(--color-border)',background:'var(--color-overlay)' }}>
-            <Terminal size={14} style={{ color:'var(--color-accent-lime)' }} />
+            <Terminal size={14} style={{ color:'var(--color-ok)' }} />
             <Dialog.Title style={{ fontSize:14,fontWeight:600,color:'var(--color-text)',margin:0,fontFamily:'var(--font-mono)' }}>Cypher Queries — Cross-Institution Patterns</Dialog.Title>
             <Dialog.Close asChild>
               <button style={{ marginLeft:'auto',background:'none',border:'none',cursor:'pointer',color:'var(--color-text-muted)' }}><X size={16} /></button>
@@ -43,7 +43,7 @@ export function CypherDrawer() {
             <div style={{ position:'absolute',top:20,right:20,zIndex:1 }}>
               <CopyButton text={QUERIES[active]?.cypher ?? ''} />
             </div>
-            <pre style={{ margin:0,padding:16,background:'var(--color-canvas)',borderRadius:6,fontFamily:'var(--font-mono)',fontSize:12,color:'var(--color-accent-lime)',lineHeight:1.6,overflow:'auto',maxHeight:300,whiteSpace:'pre-wrap' }}>
+            <pre style={{ margin:0,padding:16,background:'var(--color-code-bg)',borderRadius:6,fontFamily:'var(--font-mono)',fontSize:12,color:'var(--color-code-text)',lineHeight:1.6,overflow:'auto',maxHeight:300,whiteSpace:'pre-wrap' }}>
               {QUERIES[active]?.cypher}
             </pre>
           </div>

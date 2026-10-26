@@ -3,7 +3,7 @@ import { cn } from '@/lib/cn';
 
 const ROLE_COLORS: Record<Role, string> = {
   scrutiny_officer: 'var(--color-accent)',
-  senior_reviewer: 'var(--color-accent-lime)',
+  senior_reviewer: 'var(--color-ok)',
   rule_admin: 'var(--color-validity)',
   auditor: 'var(--color-discrepancy)',
   applicant: 'var(--color-pending)',

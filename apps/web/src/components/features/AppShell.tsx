@@ -43,7 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div style={{ display:'flex',alignItems:'center',justifyContent: sidebarCollapsed ? 'center' : 'space-between',padding:'12px 12px',height:48,borderBottom:'1px solid var(--color-border)' }}>
           {!sidebarCollapsed && (
             <Link href="/queue" style={{ textDecoration:'none' }}>
-              <span style={{ fontSize:13,fontWeight:700,color:'var(--color-accent-lime)',letterSpacing:'0.02em' }}>EvidenceGraph</span>
+              <span style={{ fontSize:13,fontWeight:700,color:'var(--color-ok)',letterSpacing:'0.02em' }}>EvidenceGraph</span>
             </Link>
           )}
           <button onClick={toggleSidebar} style={{ background:'none',border:'none',cursor:'pointer',color:'var(--color-text-muted)',padding:2 }} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>

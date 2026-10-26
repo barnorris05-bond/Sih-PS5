@@ -121,7 +121,7 @@ export function LedgerTable() {
                   <td style={{ padding: '8px 12px', color: 'var(--color-text-muted)' }}>{row.entity} · {row.entityId}</td>
                   <td style={{ padding: '8px 12px' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: showAlert ? 'var(--color-alert)' : 'var(--color-accent-lime)', transition: 'color 200ms ease' }}>
+                      <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: showAlert ? 'var(--color-alert)' : 'var(--color-ok)', transition: 'color 200ms ease' }}>
                         {row.hash.slice(0, 12)}…
                       </code>
                       <CopyButton text={row.hash} size={11} />

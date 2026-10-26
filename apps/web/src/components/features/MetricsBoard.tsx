@@ -32,7 +32,7 @@ export function MetricsBoard() {
         <StatCard label="Discrepancy Recall" value={fmtPercent(metrics.discrepancyRecall)} color="var(--color-accent)" />
         <StatCard label="False Positive Rate" value={fmtPercent(metrics.falsePositiveRate)} color={metrics.falsePositiveRate === 0 ? 'var(--color-verified)' : 'var(--color-alert)'} note="High-severity on clean controls" />
         <StatCard label="Verification Coverage" value={fmtPercent(metrics.verificationCoverage)} color="var(--color-accent)" />
-        <StatCard label="Explainability Coverage" value={fmtPercent(metrics.explainabilityCoverage)} color="var(--color-accent-lime)" />
+        <StatCard label="Explainability Coverage" value={fmtPercent(metrics.explainabilityCoverage)} color="var(--color-ok)" />
         <StatCard label="Avg Time / Application" value={`${metrics.avgTimePerApplicationMinutes.toFixed(1)}m`} color="var(--color-text-muted)" />
         <StatCard label="Alert Latency (median)" value={`${metrics.alertLatencySeconds.median.toFixed(1)}s`} color="var(--color-text-muted)" />
         <StatCard label="Alert Latency (p90)" value={`${metrics.alertLatencySeconds.p90.toFixed(1)}s`} color="var(--color-text-muted)" />
