@@ -23,6 +23,10 @@ pnpm build
 pnpm verify
 ```
 
+`pnpm verify` is the one-command gate: typecheck, lint, unit tests, contrast, PII and wording checks, production build with a bundle budget (≤ 150 kB first load JS per route), a 50 ms API p95 timing budget, and the Playwright e2e suite including a 14-route axe accessibility sweep.
+
+Screenshots of every primary screen in both themes (1440×900) live in `docs/screenshots/`; regenerate them with `scripts/capture-screenshots.cjs` while a production server runs on port 3101.
+
 The seed is deterministic and contains 12 fictional institutions: seven with planted scenarios and five clean controls. No real applicant data is used.
 
 ## Demo roles
