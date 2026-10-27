@@ -7,7 +7,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { assembleDataset, type Dataset } from '@evidencegraph/fixtures';
 import { loadRulePack, verifyChain, dailyDigest, tamperRow, appendRow, applyCorrection as applyFactCorrection } from '@evidencegraph/engine';
-import { computeMetrics } from '@evidencegraph/engine';
+import { computeMetrics, computeTriage } from '@evidencegraph/engine';
+import { buildFactIndex, runRule, buildFinding } from '@evidencegraph/engine';
 import type {
   ApplicationSummary,
   Institution,
@@ -34,6 +35,7 @@ export type StoreEvent =
   | { type: 'decision.recorded'; payload: { appId: string; findingId: string; action: string; actor: string } }
   | { type: 'ledger.appended'; payload: { seq: number; action: string; at: string } }
   | { type: 'verification.updated'; payload: { appId: string; attemptId: string; status: string } }
+  | { type: 'letter.updated'; payload: { appId: string; updatedBy: string; at: string } }
   | { type: 'dataset.reset'; payload: { at: string } };
 
 type Listener = (event: StoreEvent) => void;
@@ -56,6 +58,31 @@ export function broadcastStoreEvent(event: StoreEvent): void {
 
 // ---- Persistence with Atomic Writes & Mutex Queue ----
 
+export type IdempotencyRecord =
+  | { key: string; operation: string; fingerprint: string; kind: 'decision'; row: AuditRow }
+  | { key: string; operation: string; fingerprint: string; kind: 'correction'; fact: Fact };
+
+export class IdempotencyConflictError extends Error {
+  constructor() {
+    super('Idempotency-Key was already used with a different operation or payload.');
+    this.name = 'IdempotencyConflictError';
+  }
+}
+
+function findIdempotencyRecord(
+  patch: StorePatch,
+  key: string | undefined,
+  operation: string,
+  fingerprint: string,
+): IdempotencyRecord | undefined {
+  if (!key) return undefined;
+  const record = patch.idempotency.find((entry) => entry.key === key && entry.operation === operation);
+  if (record && record.fingerprint !== fingerprint) {
+    throw new IdempotencyConflictError();
+  }
+  return record;
+}
+
 interface StorePatch {
   decisions: Array<{
     appId: string;
@@ -64,19 +91,29 @@ interface StorePatch {
     actor: string;
     reason: string;
     at: string;
+    seq?: number;
   }>;
   corrections: Array<{
     factId: string;
     correctedValue: string | number;
     officer: string;
     at: string;
+    seq?: number;
   }>;
   tamperedRows: Array<{ seq: number; patch: Record<string, unknown> }>;
-  letterReleases: Array<{ appId: string; releasedBy: string; releasedAt: string }>;
+  letterUpdates: Array<{ appId: string; body: string; updatedBy: string; updatedAt: string; seq?: number }>;
+  letterReleases: Array<{ appId: string; releasedBy: string; releasedAt: string; seq?: number }>;
+  publishedRules: Rule[];
+  rulePublishes: Array<{ ruleId: string; version: number; author: string; secondApprover: string; at: string; seq?: number }>;
+  idempotency: IdempotencyRecord[];
 }
 
 function patchFilePath(): string {
   return path.join(process.cwd(), '.data', 'store.json');
+}
+
+function emptyPatch(): StorePatch {
+  return { decisions: [], corrections: [], tamperedRows: [], letterUpdates: [], letterReleases: [], publishedRules: [], rulePublishes: [], idempotency: [] };
 }
 
 function loadPatch(): StorePatch {
@@ -88,24 +125,22 @@ function loadPatch(): StorePatch {
   } catch {
     // ignore corrupt file
   }
-  return { decisions: [], corrections: [], tamperedRows: [], letterReleases: [] };
+  return emptyPatch();
 }
 
-let _writeQueue = Promise.resolve();
-
+/** Synchronous atomic write (temp + rename) so replays and tests always see a
+ * fully flushed file before the next read. */
 function savePatch(p: StorePatch): void {
-  _writeQueue = _writeQueue.then(async () => {
-    try {
-      const fp = patchFilePath();
-      const dir = path.dirname(fp);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      const tmpPath = `${fp}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
-      fs.writeFileSync(tmpPath, JSON.stringify(p, null, 2), 'utf8');
-      fs.renameSync(tmpPath, fp);
-    } catch {
-      // non-fatal in demo
-    }
-  });
+  try {
+    const fp = patchFilePath();
+    const dir = path.dirname(fp);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const tmpPath = `${fp}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(p, null, 2), 'utf8');
+    fs.renameSync(tmpPath, fp);
+  } catch {
+    // non-fatal in demo
+  }
 }
 
 // ---- Singleton & Versioned Derived-Data Cache ----
@@ -144,29 +179,61 @@ function getRulesDir(): string {
 function getDatasetInternal(): Dataset {
   if (_ds) return _ds;
 
-  const rulesDir = getRulesDir();
-  const rules = loadRulePack(rulesDir);
-  _ds = assembleDataset(rules);
-
-  // Make ledger mutable
-  _ledger = [..._ds.ledger];
-
-  // Apply persisted patches
   _patch = loadPatch();
+  const rulesDir = getRulesDir();
+  const rules = _patch.publishedRules.length > 0 ? _patch.publishedRules : loadRulePack(rulesDir);
+  _ds = assembleDataset(rules);
+  // The ledger is reconstructed from the persisted mutation patch below. Keep
+  // it as a live array before replaying mutations so appendRow can safely
+  // rebuild the hash chain after a restart.
+  _ledger = [];
+
+  // Re-derive in-flight corrections inside the dataset so that a restarted process sees the
+  // same facts that the in-process request returned. This makes cross-process idempotency
+  // observable: the replayed correction is a no-op and does not append a second ledger row.
+  if (_patch.idempotency && _patch.idempotency.length) {
+    for (const record of _patch.idempotency) {
+      if (record.kind === 'correction') {
+        // Newer patches also carry a first-class correction mutation. Let the
+        // normal mutation replay below rebuild both the fact and its ledger
+        // row, avoiding a duplicate replacement fact.
+        const hasPersistedMutation = _patch.corrections.some((entry) =>
+          entry.factId === record.fact?.supersededBy || entry.factId === record.fact?.id,
+        );
+        if (hasPersistedMutation) continue;
+        const replacement = _ds.facts.find((f) => f.id === record.fact?.id);
+        if (!replacement) {
+          const original = _ds.facts.find((f) => f.id === record.fact?.supersededBy);
+          if (original) {
+            const at = new Date().toISOString();
+            const { original: updated, replacement: newFact } = applyFactCorrection(original, { value: record.fact.correctedValue, officer: record.fact.officer, at });
+            Object.assign(original, updated);
+            _ds.facts.push(newFact);
+            recomputeDependentFindings(original.applicationId, original.key, at, newFact.id);
+          } else {
+            // Older idempotency-only patches did not retain the original fact
+            // id. Keep the seed dataset intact; the record can still be used
+            // for an idempotent response and its replacement is rebuilt when
+            // a first-class correction mutation is available.
+            continue;
+          }
+        }
+      }
+    }
+  }
+  const dsRulesDir = getRulesDir();
+  const dsRules = _patch.publishedRules.length > 0 ? _patch.publishedRules : loadRulePack(dsRulesDir);
+  _ds = assembleDataset(dsRules);
+
+  // Apply persisted (persisted-at restart) corrections first. This is the set of
+  // corrections that survived a previous process restart; the in-flight corrections
+  // (already applied above) are NOT duplicated here.
   for (const c of _patch.corrections) {
     const fact = _ds.facts.find((f) => f.id === c.factId);
     if (fact) {
       const { original, replacement } = applyFactCorrection(fact, { value: c.correctedValue, officer: c.officer, at: c.at });
       Object.assign(fact, original);
       _ds.facts.push(replacement);
-      appendRow(_ledger!, {
-        at: c.at,
-        actor: c.officer,
-        action: 'fact.corrected',
-        entity: 'Fact',
-        entityId: replacement.id,
-        payload: { appId: fact.applicationId, factId: fact.id, replacementFactId: replacement.id, correctedValue: c.correctedValue },
-      });
     }
   }
   for (const d of _patch.decisions) {
@@ -192,6 +259,135 @@ function getDatasetInternal(): Dataset {
       (letter as Record<string, unknown>)['releasedAt'] = r.releasedAt;
     }
   }
+  for (const u of _patch.letterUpdates) {
+    const letter = _ds.letters.find((l) => l.applicationId === u.appId);
+    if (letter) {
+      letter.body = u.body;
+      letter.updatedAt = u.updatedAt;
+    }
+  }
+
+  const ledgerMutations = [
+    ..._patch.corrections.map((entry) => ({ kind: 'correction' as const, at: entry.at, seq: entry.seq, entry })),
+    ..._patch.decisions.map((entry) => ({ kind: 'decision' as const, at: entry.at, seq: entry.seq, entry })),
+    ..._patch.letterUpdates.map((entry) => ({ kind: 'letter-update' as const, at: entry.updatedAt, seq: entry.seq, entry })),
+    ..._patch.letterReleases.map((entry) => ({ kind: 'letter-release' as const, at: entry.releasedAt, seq: entry.seq, entry })),
+    ..._patch.rulePublishes.map((entry) => ({ kind: 'rule-publish' as const, at: entry.at, seq: entry.seq, entry })),
+  ].sort((a, b) => {
+    if (a.seq !== undefined && b.seq !== undefined) return a.seq - b.seq;
+    return a.at.localeCompare(b.at);
+  });
+  for (const mutation of ledgerMutations) {
+    if (mutation.kind === 'correction') {
+      const fact = _ds.facts.find((item) => item.id === mutation.entry.factId);
+      if (!fact) continue;
+      const replacement = _ds.facts.find((item) => item.id === fact.supersededBy);
+      if (!replacement) continue;
+      appendRow(_ledger!, {
+        at: mutation.entry.at,
+        actor: mutation.entry.officer,
+        action: 'fact.corrected',
+        entity: 'Fact',
+        entityId: replacement.id,
+        payload: {
+          appId: fact.applicationId,
+          factId: fact.id,
+          replacementFactId: replacement.id,
+          correctedValue: mutation.entry.correctedValue,
+        },
+      });
+    } else if (mutation.kind === 'decision') {
+      appendRow(_ledger!, {
+        at: mutation.entry.at,
+        actor: mutation.entry.actor,
+        action: `finding.${mutation.entry.action}`,
+        entity: 'Finding',
+        entityId: mutation.entry.findingId,
+        payload: {
+          appId: mutation.entry.appId,
+          findingId: mutation.entry.findingId,
+          action: mutation.entry.action,
+          reason: mutation.entry.reason,
+        },
+      });
+    } else if (mutation.kind === 'letter-update') {
+      appendRow(_ledger!, {
+        at: mutation.entry.updatedAt,
+        actor: mutation.entry.updatedBy,
+        action: 'letter.updated',
+        entity: 'Letter',
+        entityId: mutation.entry.appId,
+        payload: { appId: mutation.entry.appId, updatedBy: mutation.entry.updatedBy },
+      });
+    } else if (mutation.kind === 'letter-release') {
+      appendRow(_ledger!, {
+        at: mutation.entry.releasedAt,
+        actor: mutation.entry.releasedBy,
+        action: 'letter.released',
+        entity: 'Letter',
+        entityId: mutation.entry.appId,
+        payload: { appId: mutation.entry.appId, releasedBy: mutation.entry.releasedBy },
+      });
+    } else if (mutation.kind === 'rule-publish') {
+      appendRow(_ledger!, {
+        at: mutation.entry.at,
+        actor: mutation.entry.author,
+        action: 'rules.published',
+        entity: 'Rule',
+        entityId: mutation.entry.ruleId,
+        payload: {
+          ruleId: mutation.entry.ruleId,
+          version: mutation.entry.version,
+          secondApprover: mutation.entry.secondApprover,
+        },
+      });
+    }
+  }
+
+  // Defensive reconstruction for patches written by the earlier prototype,
+  // which persisted the idempotency record but not the correction mutation.
+  // It also makes restart recovery tolerant of a partially written patch.
+  for (const correction of _patch.corrections) {
+    const original = _ds.facts.find((fact) => fact.id === correction.factId);
+    const replacementId = original?.supersededBy;
+    if (!original || !replacementId || !_ds.facts.some((fact) => fact.id === replacementId)) continue;
+    if (_ledger!.some((row) => row.action === 'fact.corrected' && row.entityId === replacementId)) continue;
+    appendRow(_ledger!, {
+      at: correction.at,
+      actor: correction.officer,
+      action: 'fact.corrected',
+      entity: 'Fact',
+      entityId: replacementId,
+      payload: {
+        appId: original.applicationId,
+        factId: original.id,
+        replacementFactId: replacementId,
+        correctedValue: correction.correctedValue,
+      },
+    });
+  }
+  for (const record of _patch.idempotency) {
+    if (record.kind !== 'correction' || !record.fact) continue;
+    const replacement = _ds.facts.find((fact) => fact.id === record.fact?.id);
+    const original = replacement?.supersededBy
+      ? _ds.facts.find((fact) => fact.id === replacement.supersededBy)
+      : _ds.facts.find((fact) => fact.id === record.fact?.supersededBy);
+    if (!replacement || !original) continue;
+    if (_ledger!.some((row) => row.action === 'fact.corrected' && row.entityId === replacement.id)) continue;
+    appendRow(_ledger!, {
+      at: replacement.recordedAt,
+      actor: replacement.extractor.replace(/^human:/, ''),
+      action: 'fact.corrected',
+      entity: 'Fact',
+      entityId: replacement.id,
+      payload: {
+        appId: replacement.applicationId,
+        factId: original.id,
+        replacementFactId: replacement.id,
+        correctedValue: replacement.value,
+      },
+    });
+  }
 
   return _ds;
 }
@@ -206,7 +402,27 @@ export function getApplicationSummaries(): ApplicationSummary[] {
   if (_cachedSummaries && _cachedSummaries.version === _datasetVersion) {
     return _cachedSummaries.data;
   }
-  const summaries = getDatasetInternal().summaries;
+  const ds = getDatasetInternal();
+  const summaries = ds.summaries.map((summary) => {
+    // Recompute from the live finding set so decisions, corrections and rule
+    // publishes are reflected immediately (trust the recomputation, not the
+    // assembly-time stamp).
+    const findings = ds.findings.filter((finding) => finding.applicationId === summary.id);
+    const openFindings = findings.filter((finding) => finding.status === 'open');
+    const openByClass: Record<string, number> = {};
+    for (const finding of openFindings) {
+      openByClass[finding.findingClass] = (openByClass[finding.findingClass] ?? 0) + 1;
+    }
+    const triage = computeTriage(openFindings, ds.signalStrengths);
+    return {
+      ...summary,
+      triageScore: triage.score,
+      triageReasons: triage.reasons,
+      openFindings: openFindings.length,
+      openByClass,
+      highSeverityOpen: openFindings.filter((finding) => finding.severity === 'high').length,
+    };
+  });
   _cachedSummaries = { version: _datasetVersion, data: summaries };
   return summaries;
 }
@@ -231,6 +447,67 @@ export function getFacts(appId: string): Fact[] {
 
 export function getFindings(appId: string): Finding[] {
   return getDatasetInternal().findings.filter((f) => f.applicationId === appId);
+}
+
+// ---- Dependent finding recomputation after a human fact correction ----
+
+function recomputeDependentFindings(appId: string, factKey: string, at: string, revisionId: string): void {
+  const ds = getDatasetInternal();
+  const institution = ds.institutions.find((candidate) => candidate.id === appId);
+  if (!institution) return;
+  const appFacts = ds.facts.filter((fact) => fact.applicationId === appId);
+  const factIndex = buildFactIndex(appFacts, institution.category, institution.sessionId, appId);
+
+  for (const rule of ds.rules) {
+    if (rule.kind === 'graph' || !rule.inputs.some((input) => input.fact === factKey)) continue;
+    if (rule.categories.length > 0 && !rule.categories.includes(institution.category)) continue;
+
+    const result = runRule(rule, factIndex);
+    const findingId = `r_${appId}_${rule.id}`;
+    const related = ds.findings.filter((finding) =>
+      finding.applicationId === appId && finding.ruleId === rule.id && finding.createdBy === `rule:${rule.id}`,
+    );
+    const existingOpen = related.find((finding) => finding.status === 'open');
+    if (result.outcome !== 'fail') {
+      for (const finding of related) {
+        if (finding.status === 'open') finding.status = 'rectified';
+      }
+      continue;
+    }
+
+    if (!existingOpen && related.some((finding) => finding.status !== 'rectified')) continue;
+    const evidence = result.evidence.map((item) => {
+      if (item.kind === 'absence_receipt' || item.kind === 'crop_ref') return item;
+      return {
+        ...item,
+        cropKey: item.cropKey ?? (item.page != null || item.bbox != null ? `crops/${item.factId}.png` : null),
+        role: 'input' as const,
+      };
+    });
+    if (evidence.length === 0) continue;
+
+    const finding = buildFinding({
+      id: related.length > 0 && !existingOpen ? `${findingId}_${revisionId}` : findingId,
+      applicationId: appId,
+      region: institution.region,
+      ruleId: rule.id,
+      ruleVersion: rule.version,
+      aphRef: rule.aphRef,
+      findingClass: result.findingClass ?? rule.onFail.class,
+      severity: result.severity ?? rule.onFail.severity,
+      confidence: 0.95,
+      summary: result.message ?? rule.onFail.message,
+      evidence,
+      createdAt: at,
+      createdBy: `rule:${rule.id}`,
+    });
+    broadcastStoreEvent({
+      type: 'finding.updated',
+      payload: { appId, findingId: finding.id, status: 'open', actor: 'system' },
+    });
+    if (existingOpen) Object.assign(existingOpen, finding);
+    else ds.findings.push(finding);
+  }
 }
 
 export function getVerifications(appId: string): VerificationAttempt[] {
@@ -277,7 +554,7 @@ export function getLetter(appId: string): LetterDraft | undefined {
 
 export function getLedger(): AuditRow[] {
   getDatasetInternal(); // ensure initialized
-  return _ledger!;
+  return _ledger ?? [];
 }
 
 export function getRules(): Rule[] {
@@ -403,7 +680,17 @@ export function applyDecision(
   action: 'accept' | 'dismiss' | 'escalate',
   reason: string,
   actor: string,
+  idempotencyKey?: string,
 ): AuditRow {
+  const patch = loadPatch();
+  const operation = `decision:${actor}:${appId}`;
+  const fingerprint = JSON.stringify({ findingId, action, reason, actor });
+  const previous = findIdempotencyRecord(patch, idempotencyKey, operation, fingerprint);
+  if (previous) {
+    if (previous.kind !== 'decision') throw new IdempotencyConflictError();
+    return structuredClone(previous.row);
+  }
+
   const ds = getDatasetInternal();
   const finding = ds.findings.find((f) => f.id === findingId && f.applicationId === appId);
   if (!finding) throw new Error(`Finding ${findingId} not found`);
@@ -423,8 +710,10 @@ export function applyDecision(
     payload: { appId, findingId, action, reason },
   });
 
-  const patch = loadPatch();
-  patch.decisions.push({ appId, findingId, action, actor, reason, at: row.at });
+  patch.decisions.push({ appId, findingId, action, actor, reason, at: row.at, seq: row.seq });
+  if (idempotencyKey) {
+    patch.idempotency.push({ key: idempotencyKey, operation, fingerprint, kind: 'decision', row });
+  }
   savePatch(patch);
   _patch = patch;
 
@@ -453,7 +742,17 @@ export function applyCorrection(
   factId: string,
   correctedValue: string | number,
   officer: string,
+  idempotencyKey?: string,
 ): Fact {
+  const patch = loadPatch();
+  const operation = `correction:${officer}:${appId}`;
+  const fingerprint = JSON.stringify({ factId, correctedValue, officer });
+  const previous = findIdempotencyRecord(patch, idempotencyKey, operation, fingerprint);
+  if (previous) {
+    if (previous.kind !== 'correction') throw new IdempotencyConflictError();
+    return structuredClone(previous.fact);
+  }
+
   const ds = getDatasetInternal();
   const fact = ds.facts.find((f) => f.id === factId && f.applicationId === appId);
   if (!fact) throw new Error(`Fact ${factId} not found`);
@@ -463,6 +762,7 @@ export function applyCorrection(
   const { original, replacement } = applyFactCorrection(fact, { value: correctedValue, officer, at });
   Object.assign(fact, original);
   ds.facts.push(replacement);
+  recomputeDependentFindings(appId, fact.key, at, replacement.id);
 
   const row = appendRow(_ledger!, {
     at,
@@ -473,8 +773,19 @@ export function applyCorrection(
     payload: { appId, factId, replacementFactId: replacement.id, correctedValue },
   });
 
-  const patch = loadPatch();
-  patch.corrections.push({ factId, correctedValue, officer, at });
+  if (idempotencyKey) {
+    patch.idempotency.push({ key: idempotencyKey, operation, fingerprint, kind: 'correction', fact: replacement });
+  }
+  // Persist the correction itself as well as the idempotency record. The
+  // idempotency record makes a repeated request a no-op; this mutation record
+  // lets a fresh process rebuild the corrected fact and its audit row.
+  patch.corrections.push({
+    factId,
+    correctedValue,
+    officer,
+    at,
+    seq: row.seq,
+  });
   savePatch(patch);
   _patch = patch;
 
@@ -492,6 +803,98 @@ export function applyCorrection(
   });
 
   return replacement;
+}
+
+// ---- Rule pack publishing with second-approver approval ----
+
+export function publishRulePack(rules: Rule[], author: string, secondApprover: string): AuditRow {
+  getDatasetInternal();
+  if (author.trim().toLowerCase() === secondApprover.trim().toLowerCase()) {
+    throw new Error('The second approver must be a different person from the author.');
+  }
+  const ruleIds = new Set(rules.map((rule) => rule.id));
+  if (ruleIds.size !== rules.length) throw new Error('Published rule pack contains duplicate rule IDs.');
+
+  const at = new Date().toISOString();
+  const publishedRule = rules.find((rule) =>
+    rule.version > (_ds?.rules.find((active) => active.id === rule.id)?.version ?? -1),
+  );
+  if (!publishedRule) throw new Error('Published rule pack must contain a new rule version.');
+
+  const nextPatch: StorePatch = {
+    ...loadPatch(),
+    publishedRules: rules,
+    rulePublishes: [
+      ...loadPatch().rulePublishes,
+      {
+        ruleId: publishedRule.id,
+        version: publishedRule.version,
+        author: author.trim(),
+        secondApprover: secondApprover.trim(),
+        at,
+        seq: (_ledger?.length ?? 0) + 1,
+      },
+    ],
+  };
+  savePatch(nextPatch);
+  _patch = nextPatch;
+  _ds = null;
+  _ledger = null;
+  _datasetVersion++;
+  _cachedMetrics = null;
+  _cachedSummaries = null;
+
+  getDatasetInternal();
+  const publishRecord = nextPatch.rulePublishes[nextPatch.rulePublishes.length - 1]!;
+  const row = _ledger!.find((candidate) =>
+    candidate.seq === publishRecord.seq &&
+    candidate.action === 'rules.published' &&
+    candidate.entityId === publishedRule.id,
+  );
+  if (!row) throw new Error('Rule publish was persisted but its audit ledger entry could not be reconstructed.');
+  broadcastStoreEvent({
+    type: 'ledger.appended',
+    payload: { seq: row.seq, action: row.action, at: row.at },
+  });
+  return row;
+}
+
+// ---- Letter draft editing (senior reviewer only) ----
+
+export function updateLetterDraft(appId: string, body: string, updatedBy: string): LetterDraft {
+  getDatasetInternal();
+  const letter = _ds!.letters.find((item) => item.applicationId === appId);
+  if (!letter) throw new Error(`Letter for ${appId} not found`);
+  if (letter.releasedAt) throw new Error('A released letter cannot be edited.');
+
+  const updatedAt = new Date().toISOString();
+  const nextPatch: StorePatch = {
+    ...loadPatch(),
+    letterUpdates: [
+      ...loadPatch().letterUpdates,
+      { appId, body, updatedBy, updatedAt, seq: (_ledger?.length ?? 0) + 1 },
+    ],
+  };
+  savePatch(nextPatch);
+  _patch = nextPatch;
+  _ds = null;
+  _ledger = null;
+  _datasetVersion++;
+  _cachedMetrics = null;
+  _cachedSummaries = null;
+
+  getDatasetInternal();
+  const updatedLetter = getLetter(appId);
+  const updateRecord = nextPatch.letterUpdates[nextPatch.letterUpdates.length - 1]!;
+  const row = _ledger!.find((candidate) =>
+    candidate.seq === updateRecord.seq &&
+    candidate.action === 'letter.updated' &&
+    candidate.entityId === appId,
+  );
+  if (!updatedLetter || !row) throw new Error('The letter draft was persisted but its audit record could not be reconstructed.');
+  broadcastStoreEvent({ type: 'letter.updated', payload: { appId, updatedBy, at: updatedAt } });
+  broadcastStoreEvent({ type: 'ledger.appended', payload: { seq: row.seq, action: row.action, at: row.at } });
+  return updatedLetter;
 }
 
 export function tamperLedgerRow(seq: number, patch: Record<string, unknown>): AuditRow {
@@ -533,7 +936,7 @@ export function releaseLetter(appId: string, releasedBy: string): LetterDraft {
   });
 
   const p = loadPatch();
-  p.letterReleases.push({ appId, releasedBy, releasedAt });
+  p.letterReleases.push({ appId, releasedBy, releasedAt, seq: row.seq });
   savePatch(p);
 
   _datasetVersion++;

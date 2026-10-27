@@ -33,9 +33,9 @@ function hydrateRule(raw: Record<string, unknown>): Rule {
       : undefined,
     graphQuery: raw.graph_query ? String(raw.graph_query) : undefined,
     onFail: {
-      class: (raw.on_fail as Record<string, string>).class as FindingClass,
-      severity: (raw.on_fail as Record<string, string>).severity as Severity,
-      message: (raw.on_fail as Record<string, string>).message as string,
+      class: ((raw.on_fail as Record<string, string> | undefined)?.class ?? "") as FindingClass,
+      severity: ((raw.on_fail as Record<string, string> | undefined)?.severity ?? "") as Severity,
+      message: ((raw.on_fail as Record<string, string> | undefined)?.message ?? "") as string,
     },
     onInsufficientEvidence: raw.on_insufficient_evidence
       ? {
@@ -71,6 +71,45 @@ export function parseRuleYaml(text: string, file?: string): Rule {
   const rule = hydrateRule(docObj);
   assertRuleIsValid(rule, file);
   return rule;
+}
+
+/** Serialise a rule back to editable YAML (the Rules editor round-trips this). */
+export function stringifyRuleYaml(rule: Rule): string {
+  return YAML.stringify({
+    id: rule.id,
+    version: rule.version,
+    aph_ref: rule.aphRef,
+    applies_to: { categories: rule.categories, sessions: rule.sessions },
+    inputs: rule.inputs.map((input) => ({
+      fact: input.fact,
+      ...(input.min_confidence !== undefined ? { min_confidence: input.min_confidence } : {}),
+      ...(input.required !== undefined ? { required: input.required } : {}),
+    })),
+    assert: rule.assert,
+    ...(rule.checklistItem
+      ? { checklist_item: { slot: rule.checklistItem.slot, doc_type: rule.checklistItem.docType } }
+      : {}),
+    ...(rule.graphQuery ? { graph_query: rule.graphQuery } : {}),
+    on_fail: {
+      class: rule.onFail.class,
+      severity: rule.onFail.severity,
+      message: rule.onFail.message,
+    },
+    ...(rule.onInsufficientEvidence
+      ? {
+          on_insufficient_evidence: {
+            route: rule.onInsufficientEvidence.route,
+            ...(rule.onInsufficientEvidence.message ? { message: rule.onInsufficientEvidence.message } : {}),
+          },
+        }
+      : {}),
+    ...(rule.kind === "graph" ? { kind: "graph" } : {}),
+    tests: rule.tests.map((test) => ({
+      name: test.name,
+      facts: test.facts,
+      expect: test.expect,
+    })),
+  }, { lineWidth: 0 });
 }
 
 export class RuleLoadError extends Error {}

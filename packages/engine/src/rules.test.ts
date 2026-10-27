@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 const RULE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../rules/aph-2024-27");
-import { loadRulePack, parseRuleYaml, runRule, runRuleTests, assertRuleIsValid, buildFactIndex, type FactIndex } from "./rules.js";
+import { RuleLoadError, loadRulePack, parseRuleYaml, stringifyRuleYaml, runRule, runRuleTests, assertRuleIsValid, buildFactIndex, type FactIndex } from "./rules.js";
 import type { Fact, Rule } from "@evidencegraph/domain";
 
 describe("APH 2024-27 rule pack", () => {
@@ -38,6 +38,12 @@ describe("APH 2024-27 rule pack", () => {
         expect({ rule: r.id, test: t.name, got: t.got, expected: "pass" as const }).toEqual({ rule: r.id, test: t.name, got: t.got, expected: t.passed ? "pass" : undefined });
       }
       expect(results.every((t) => t.passed), `${r.id} failed its tests`).toBe(true);
+    }
+  });
+
+  it("serializes editable YAML that round-trips every rule", () => {
+    for (const rule of rules) {
+      expect(parseRuleYaml(stringifyRuleYaml(rule))).toEqual(rule);
     }
   });
 
@@ -162,5 +168,9 @@ describe("rule loaders guard rails", () => {
 
   it("duplicate rule ids are rejected", () => {
     expect(() => parseRuleYaml("version: 1\n")).toThrow(/missing id|empty/);
+  });
+
+  it("malformed rule structures return a validation error instead of an internal exception", () => {
+    expect(() => parseRuleYaml("id: broken\nversion: 1\ninputs: []\nassert: 'true'\ntests: []\n")).toThrow(RuleLoadError);
   });
 });

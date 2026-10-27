@@ -1,7 +1,8 @@
 import { type NextRequest } from 'next/server';
-import { applyDecision } from '@/.data/store';
+import { IdempotencyConflictError, applyDecision } from '@/.data/store';
 import { z } from 'zod';
 import { apiError, apiSuccess } from '@/lib/api-response';
+import { INTERNAL_ROLES, requireRole } from '@/lib/api-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,11 +17,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const role = request.headers.get('x-eg-role') ?? 'scrutiny_officer';
-
-  if (role === 'applicant') {
-    return apiError('FORBIDDEN_ROLE', 'Applicants cannot record finding decisions.', 403);
-  }
+  const role = requireRole(request, INTERNAL_ROLES);
+  if (typeof role !== 'string') return role;
 
   let body: unknown;
   try {
@@ -41,10 +39,15 @@ export async function POST(
     return apiError('FORBIDDEN_ROLE', 'Only senior_reviewer can escalate findings', 403);
   }
 
+  const idempotencyKey = request.headers.get('idempotency-key') ?? undefined;
+
   try {
-    const ledgerRow = applyDecision(id, findingId, action, reason, role);
+    const ledgerRow = applyDecision(id, findingId, action, reason, role, idempotencyKey);
     return apiSuccess({ ledgerRow }, { status: 200 });
   } catch (e) {
+    if (e instanceof IdempotencyConflictError) {
+      return apiError('IDEMPOTENCY_CONFLICT', e.message, 409);
+    }
     const message = e instanceof Error ? e.message : String(e);
     return apiError('RESOURCE_NOT_FOUND', message, 404);
   }

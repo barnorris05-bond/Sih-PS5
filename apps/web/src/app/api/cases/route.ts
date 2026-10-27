@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server';
 import { z } from 'zod';
 import { getApplicationSummaries } from '@/.data/store';
 import { apiError, apiSuccess } from '@/lib/api-response';
+import { requireRole } from '@/lib/api-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,8 @@ const querySchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const role = request.headers.get('x-eg-role') ?? 'scrutiny_officer';
+  const role = requireRole(request, ['scrutiny_officer', 'senior_reviewer', 'auditor', 'rule_admin', 'applicant']);
+  if (typeof role !== 'string') return role;
   if (role === 'applicant') {
     return apiError('FORBIDDEN_ROLE', 'Applicants cannot access the cases list. Use /my-application instead.', 403);
   }

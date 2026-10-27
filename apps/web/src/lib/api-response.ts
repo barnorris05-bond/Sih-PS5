@@ -49,10 +49,10 @@ export function apiSuccess<T>(
   const jsonString = JSON.stringify(data);
   const etag = `"${crypto.createHash('sha1').update(jsonString).digest('base64url')}"`;
 
-  // Check If-None-Match for 304 Not Modified
+  // Check If-None-Match for 304 Not Modified (= * matches any current ETag)
   if (options?.request) {
     const ifNoneMatch = options.request.headers.get('if-none-match');
-    if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch.includes(etag))) {
+    if (ifNoneMatch && (ifNoneMatch.trim() === '*' || ifNoneMatch === etag || ifNoneMatch.includes(etag))) {
       return new NextResponse(null, {
         status: 304,
         headers: {

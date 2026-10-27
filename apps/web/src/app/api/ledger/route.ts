@@ -2,14 +2,13 @@ import { type NextRequest } from 'next/server';
 import { getLedger, tamperLedgerRow, getVerifyResult, getDailyDigest } from '@/.data/store';
 import { z } from 'zod';
 import { apiError, apiSuccess } from '@/lib/api-response';
+import { requireRole } from '@/lib/api-auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const role = request.headers.get('x-eg-role') ?? 'scrutiny_officer';
-  if (role !== 'auditor' && role !== 'senior_reviewer' && role !== 'scrutiny_officer' && role !== 'rule_admin') {
-    return apiError('FORBIDDEN_ROLE', 'Only auditors and officers can access the audit ledger.', 403);
-  }
+  const role = requireRole(request, ['auditor', 'senior_reviewer', 'scrutiny_officer', 'rule_admin']);
+  if (typeof role !== 'string') return role;
 
   const rows = getLedger();
   const integrity = getVerifyResult();
@@ -24,10 +23,8 @@ const TamperBody = z.object({
 }).strict();
 
 export async function POST(request: NextRequest) {
-  const role = request.headers.get('x-eg-role') ?? 'scrutiny_officer';
-  if (role === 'applicant') {
-    return apiError('FORBIDDEN_ROLE', 'Applicants cannot access audit operations.', 403);
-  }
+  const role = requireRole(request, ['auditor', 'senior_reviewer']);
+  if (typeof role !== 'string') return role;
 
   let body: unknown;
   try {
