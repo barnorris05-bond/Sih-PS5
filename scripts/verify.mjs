@@ -38,8 +38,13 @@ const steps = [
   {
     name: 'production build',
     cmd: 'node',
-    args: ['node_modules/next/dist/bin/next', 'build'],
-    cwd: 'apps/web',
+    args: ['scripts/run-capture.mjs'],
+    cwd: root,
+  },
+  {
+    name: 'bundle budget',
+    cmd: 'node',
+    args: ['scripts/check-bundles.mjs'],
   },
   {
     name: 'API timing budget',

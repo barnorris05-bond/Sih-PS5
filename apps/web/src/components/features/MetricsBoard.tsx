@@ -4,10 +4,15 @@ import type { MetricBoard } from '@evidencegraph/domain';
 import { useRoleStore } from '@/store/role-store';
 import { Spinner } from '@/components/atoms/Spinner';
 import { fmtPercent } from '@/lib/format';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import dynamic from 'next/dynamic';
 
-export function MetricsBoard() {
-  const { role } = useRoleStore();
+/** Lazy chart boundary: recharts (~100 kB) is off the first-load path. */
+const FieldAccuracyChart = dynamic(() => import('./FieldAccuracyChart'), {
+  ssr: false,
+  loading: () => <div style={{ height: 220, display: 'flex', alignItems: 'center', color: 'var(--color-text-faint)', fontSize: 12 }}>Loading chart…</div>,
+});
+
+export function MetricsBoard() {  const { role } = useRoleStore();
 
   const { data: metrics, isLoading, error, refetch } = useQuery<MetricBoard>({
     queryKey: ['metrics'],
@@ -43,21 +48,7 @@ export function MetricsBoard() {
       {metrics.fieldAccuracyPerDocType.length > 0 && (
         <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, padding: 20, marginBottom: 16 }}>
           <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)', margin: '0 0 16px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Field Extraction Accuracy by Document Type</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={metrics.fieldAccuracyPerDocType} margin={{ left: -10 }}>
-              <XAxis dataKey="docType" tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} angle={-20} textAnchor="end" height={50} />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--color-text-muted)' }} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} domain={[0, 1]} />
-              <Tooltip
-                formatter={(v: number) => `${(v * 100).toFixed(1)}%`}
-                contentStyle={{ background: 'var(--color-overlay)', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 12 }}
-              />
-              <Bar dataKey="accuracy" radius={[3, 3, 0, 0]}>
-                {metrics.fieldAccuracyPerDocType.map((entry, i) => (
-                  <Cell key={i} fill={entry.accuracy > 0.9 ? 'var(--color-verified)' : entry.accuracy > 0.7 ? 'var(--color-accent)' : 'var(--color-mismatch)'} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <FieldAccuracyChart data={metrics.fieldAccuracyPerDocType} />
         </div>
       )}
     </div>

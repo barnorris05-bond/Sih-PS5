@@ -12,3 +12,4 @@ playwright-report/
 Thumbs.db
 .cache/
 .next-dev-noh/
+verify-build.log
