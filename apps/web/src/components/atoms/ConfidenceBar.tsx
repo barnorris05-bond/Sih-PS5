@@ -25,10 +25,14 @@ export function ConfidenceBar({ value, threshold = 0.7, showLabel, height = 4 }:
         <span
           style={{
             display: 'block',
-            width: `${pct}%`,
+            width: '100%',
             height: '100%',
             backgroundColor: color,
-            transition: 'width 200ms ease',
+            /* scaleX keeps the fill animating on the compositor only; the
+               track width never reflows. Reduced motion swaps to 80ms opacity. */
+            transform: `scaleX(${pct / 100})`,
+            transformOrigin: 'left center',
+            transition: 'transform 200ms cubic-bezier(0.2, 0, 0, 1)',
           }}
         />
       </span>

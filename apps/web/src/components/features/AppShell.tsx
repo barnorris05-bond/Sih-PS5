@@ -35,8 +35,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           borderRight:'1px solid var(--color-border)',
           display:'flex',
           flexDirection:'column',
-          transition:'width 150ms ease, min-width 150ms ease',
           overflow:'hidden',
+          /* No width transition: sidebar collapse is instant so the layout
+             change never animates a layout property (7.1 rule). */
         }}
         aria-label="Main navigation"
       >
