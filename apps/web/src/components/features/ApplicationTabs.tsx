@@ -44,7 +44,6 @@ export function ApplicationTabs({ id, header }: { id: string; header?: CaseHeade
 
   return (
     <div
-      role="tablist"
       aria-label="Case workspace sections"
       style={{ display: 'flex', alignItems: 'stretch', gap: 0 }}
     >
@@ -57,8 +56,6 @@ export function ApplicationTabs({ id, header }: { id: string; header?: CaseHeade
             <Link
               key={tab.segment}
               href={href}
-              role="tab"
-              aria-selected={active}
               aria-current={active ? 'page' : undefined}
               style={{
                 padding: '8px 14px',

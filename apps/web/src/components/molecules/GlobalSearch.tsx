@@ -39,9 +39,9 @@ export function GlobalSearch() {
 
   if (!open) {
     return (
-      <button onClick={handleOpen} style={{ display:'flex',alignItems:'center',gap:6,padding:'5px 10px',background:'var(--color-raised)',border:'1px solid var(--color-border)',borderRadius:6,color:'var(--color-text-muted)',fontSize:13,cursor:'pointer' }} aria-label="Search (Ctrl+K)">
+      <button onClick={handleOpen} style={{ display:'flex',alignItems:'center',gap:6,padding:'5px 10px',background:'var(--color-raised)',border:'1px solid var(--color-border)',borderRadius:6,color:'var(--color-text-muted)',fontSize:13,cursor:'pointer' }} aria-label="Search ⌘K (Ctrl+K)">
         <Search size={13} /><span>Search</span>
-        <kbd style={{ marginLeft:4,padding:'1px 4px',background:'var(--color-border)',borderRadius:3,fontSize:11,fontFamily:'var(--font-mono)' }}>⌘K</kbd>
+        <kbd style={{ marginLeft:4,padding:'1px 4px',background:'var(--color-overlay)',border:'1px solid var(--color-border)',borderRadius:3,fontSize:11,fontFamily:'var(--font-mono)',color:'var(--color-text)' }}>⌘K</kbd>
       </button>
     );
   }
